@@ -19,9 +19,17 @@
     ["kfi novelty", "Knitting Fever Novelty"],
     ["knitting fever novelty", "Knitting Fever Novelty"]
   ]);
+  const patternTitleAliases = new Map([
+    ["gina hat", "gina"]
+  ]);
 
   function canonicalBrand(brand) {
     return brandAliases.get(normalizedKey(brand)) || brand;
+  }
+
+  function canonicalPatternTitle(name) {
+    const normalized = normalizedKey(name);
+    return patternTitleAliases.get(normalized) || normalized;
   }
 
   function canonicalYarnKey(value) {
@@ -53,6 +61,7 @@
   }
 
   function patternIdentity(pattern) {
+    if (pattern.sourceId) return pattern.sourceId;
     if (pattern.kfiDesignId) return `kfi:${pattern.kfiDesignId}`;
     const kfiMatch = String(pattern.url || "").match(/knittingfever\.com\/design\/(\d+)/i);
     if (kfiMatch) return `kfi:${kfiMatch[1]}`;
@@ -102,6 +111,11 @@
     url,
     brand: canonicalBrand(brand)
   }));
+  const externalPatternCatalog = (window.EXTERNAL_PATTERN_CATALOG || []).map((pattern) => ({
+    ...pattern,
+    usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
+    brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
+  }));
 
   function buildMasterPatternCatalog() {
     const byIdentity = new Map();
@@ -110,7 +124,8 @@
         ...pattern,
         brands: [...new Set(pattern.usedYarns.map((yarnKey) => yarnKey.split("|")[0]))]
       })),
-      ...noveltyPatternCatalog.map((pattern) => ({ ...pattern, brands: [pattern.brand], usedYarns: [] }))
+      ...noveltyPatternCatalog.map((pattern) => ({ ...pattern, brands: [pattern.brand], usedYarns: [] })),
+      ...externalPatternCatalog
     ];
 
     sources.forEach((incoming) => {
@@ -130,18 +145,7 @@
       });
     });
 
-    const byPatternAndYarns = new Map();
-    [...byIdentity.values()].forEach((pattern) => {
-      const yarnSignature = pattern.usedYarns.length
-        ? pattern.usedYarns.map(normalizedKey).sort().join(";")
-        : (pattern.brands || []).map(normalizedKey).sort().join(";");
-      const key = `${normalizedKey(pattern.name)}|${yarnSignature}`;
-      const existing = byPatternAndYarns.get(key);
-      if (!existing || Number(pattern.kfiDesignId) > Number(existing.kfiDesignId)) {
-        byPatternAndYarns.set(key, pattern);
-      }
-    });
-    return [...byPatternAndYarns.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return dedupePatternLibrary([...byIdentity.values()]).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   const allPatternCatalog = buildMasterPatternCatalog();
@@ -171,6 +175,42 @@
     return matches.find(([, expression]) => expression.test(title))?.[0] || "Other";
   }
 
+  function patternLibraryKey(pattern) {
+    const associations = (pattern.usedYarns || []).length ? pattern.usedYarns : (pattern.brands || []);
+    const signature = associations.map(normalizedKey).sort().join(";");
+    return `${canonicalPatternTitle(pattern.name)}|${signature}|${inferredPatternCraft(pattern)}`;
+  }
+
+  function patternDetailScore(pattern) {
+    return Number(Number.isFinite(pattern.gauge)) + Number(Boolean(pattern.project)) + Number(Boolean(pattern.designer));
+  }
+
+  function dedupePatternLibrary(items) {
+    const merged = new Map();
+    items.forEach((incoming) => {
+      const key = patternLibraryKey(incoming);
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, incoming);
+        return;
+      }
+      const preferred = patternDetailScore(incoming) > patternDetailScore(existing) ? incoming : existing;
+      const other = preferred === incoming ? existing : incoming;
+      const shortestName = [existing.name, incoming.name].sort((a, b) => a.length - b.length)[0];
+      merged.set(key, {
+        ...other,
+        ...preferred,
+        name: shortestName,
+        usedYarns: [...new Set([...(existing.usedYarns || []), ...(incoming.usedYarns || [])])],
+        brands: [...new Set([...(existing.brands || []), ...(incoming.brands || [])])],
+        image: preferred.image || other.image,
+        url: preferred.url || other.url,
+        ravelryUrl: preferred.ravelryUrl || other.ravelryUrl
+      });
+    });
+    return [...merged.values()];
+  }
+
   function buildRankedPatternCatalog() {
     const merged = new Map(allPatternCatalog.map((pattern) => [patternIdentity(pattern), pattern]));
     patterns.forEach((incoming) => {
@@ -190,11 +230,11 @@
         url: normalized.url || existing.url
       } : normalized);
     });
-    return [...merged.values()].map((pattern) => ({
+    return dedupePatternLibrary([...merged.values()].map((pattern) => ({
       ...pattern,
       craft: inferredPatternCraft(pattern),
       inferredProject: inferredPatternProject(pattern)
-    }));
+    })));
   }
 
   const rankedPatternCatalog = buildRankedPatternCatalog();
