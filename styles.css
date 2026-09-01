@@ -238,6 +238,23 @@ select:focus, input:focus, button:focus-visible, summary:focus-visible {
 .pattern a { color: var(--navy); font-weight: 850; text-decoration: underline; text-underline-offset: 2px; }
 .pattern-links { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 
+.rank-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 18px; }
+.rank-legend > strong { width: 100%; color: var(--navy); }
+.rank {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rank-high { background: #dcefe3; color: #17663a; }
+.rank-medium { background: #e5edf7; color: var(--navy); }
+.rank-low { background: #f1f2f4; color: #687383; }
+
 .search-card { border-style: dashed; }
 .search-card .pattern-placeholder { background: #f3f0e8; color: var(--warn); }
 

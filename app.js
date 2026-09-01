@@ -145,6 +145,59 @@
   }
 
   const allPatternCatalog = buildMasterPatternCatalog();
+  const yarnByKey = new Map(yarns.map((yarn) => [`${yarn.brand}|${yarn.name}`, yarn]));
+
+  function inferredPatternCraft(pattern) {
+    if (pattern.craft === "knit" || pattern.craft === "crochet") return pattern.craft;
+    const title = normalizedKey(pattern.name);
+    return /\b(crochet|crocheted|granny|amigurumi)\b/.test(title) ? "crochet" : "knit";
+  }
+
+  function inferredPatternProject(pattern) {
+    if (pattern.project) return pattern.project;
+    const title = normalizedKey(pattern.name);
+    const matches = [
+      ["Hat", /\b(hat|beanie|cap|tam|beret)\b/],
+      ["Scarf", /\bscarf\b/],
+      ["Mittens", /\b(mitt|mitts|mitten|mittens|glove|gloves)\b/],
+      ["Sweater", /\b(sweater|cardigan|pullover|tee|top|vest|tunic)\b/],
+      ["Shawl", /\b(shawl|wrap|stole)\b/],
+      ["Cowl", /\b(cowl|snood)\b/],
+      ["Baby", /\b(baby|infant|toddler)\b/],
+      ["Blanket", /\b(blanket|throw|afghan)\b/],
+      ["Socks", /\b(sock|socks|slipper|slippers)\b/],
+      ["Stocking", /\bstocking\b/]
+    ];
+    return matches.find(([, expression]) => expression.test(title))?.[0] || "Other";
+  }
+
+  function buildRankedPatternCatalog() {
+    const merged = new Map(allPatternCatalog.map((pattern) => [patternIdentity(pattern), pattern]));
+    patterns.forEach((incoming) => {
+      const normalized = {
+        ...incoming,
+        usedYarns: (incoming.usedYarns || []).map(canonicalYarnKey),
+        brands: [...new Set((incoming.usedYarns || []).map(canonicalYarnKey).map((yarnKey) => yarnKey.split("|")[0]))]
+      };
+      const key = patternIdentity(normalized);
+      const existing = merged.get(key);
+      merged.set(key, existing ? {
+        ...existing,
+        ...normalized,
+        usedYarns: [...new Set([...(existing.usedYarns || []), ...(normalized.usedYarns || [])])],
+        brands: [...new Set([...(existing.brands || []), ...(normalized.brands || [])])],
+        image: normalized.image || existing.image,
+        url: normalized.url || existing.url
+      } : normalized);
+    });
+    return [...merged.values()].map((pattern) => ({
+      ...pattern,
+      craft: inferredPatternCraft(pattern),
+      inferredProject: inferredPatternProject(pattern)
+    }));
+  }
+
+  const rankedPatternCatalog = buildRankedPatternCatalog();
   const $ = (id) => document.getElementById(id);
 
   const projectIcons = {
@@ -172,7 +225,22 @@
   };
 
   const sizeFactors = { XS: 0.78, S: 0.88, M: 1, L: 1.12, XL: 1.24, "2X": 1.38, "3X": 1.52, "4X": 1.68, "5X": 1.84 };
-  const state = { craft: "knit", project: "Hat", kfiExpanded: false, noveltyExpanded: false, patternVisible: 24 };
+  const state = { craft: "knit", project: "Hat", patternVisible: 24 };
+  const toolRecommendations = {
+    Lace: { knit: "US 000–1 (1.5–2.25 mm)", crochet: "Steel 6–8 or B-1 (1.4–2.25 mm)" },
+    "LACE / SUPER FINE": { knit: "US 000–3 (1.5–3.25 mm)", crochet: "Steel 6–8 to E-4 (1.4–3.5 mm)" },
+    Fingering: { knit: "US 1–3 (2.25–3.25 mm)", crochet: "B-1–E-4 (2.25–3.5 mm)" },
+    Sport: { knit: "US 3–5 (3.25–3.75 mm)", crochet: "E-4–7 (3.5–4.5 mm)" },
+    DK: { knit: "US 5–7 (3.75–4.5 mm)", crochet: "7–I-9 (4.5–5.5 mm)" },
+    Worsted: { knit: "US 7–9 (4.5–5.5 mm)", crochet: "I-9–K-10½ (5.5–6.5 mm)" },
+    Aran: { knit: "US 7–9 (4.5–5.5 mm)", crochet: "I-9–K-10½ (5.5–6.5 mm)" },
+    "MEDIUM / BULKY": { knit: "US 7–11 (4.5–8 mm)", crochet: "I-9–M-13 (5.5–9 mm)" },
+    Bulky: { knit: "US 9–11 (5.5–8 mm)", crochet: "K-10½–M-13 (6.5–9 mm)" },
+    "BULKY / SUPER BULKY": { knit: "US 9–17 (5.5–12.75 mm)", crochet: "K-10½–Q (6.5–15 mm)" },
+    "Super Bulky": { knit: "US 11–17 (8–12.75 mm)", crochet: "M-13–Q (9–15 mm)" },
+    Jumbo: { knit: "US 17+ (12.75 mm+)", crochet: "Q+ (15 mm+)" },
+    Novelty: { knit: "Follow the pattern", crochet: "Follow the pattern" }
+  };
 
   function escapeHtml(value) {
     return String(value)
@@ -280,9 +348,10 @@
     document.querySelectorAll(".project").forEach((button) => {
       button.addEventListener("click", () => {
         state.project = button.dataset.project;
+        state.patternVisible = 24;
         $("buyProject").value = state.project;
         renderProjects();
-        renderPatterns();
+        renderRankedPatternLibrary();
         renderBuyEstimate();
       });
     });
@@ -535,44 +604,189 @@
   }
 
   function populatePatternBrands() {
-    const patternBrands = [...new Set(allPatternCatalog.flatMap((pattern) => pattern.brands || []))]
+    const patternBrands = [...new Set(rankedPatternCatalog.flatMap((pattern) => pattern.brands || []))]
       .sort((a, b) => a.localeCompare(b));
     $("patternBrandFilter").innerHTML = [
-      `<option value="">All Knitting Fever brands</option>`,
+      `<option value="">All pattern brands</option>`,
       ...patternBrands.map((brand) => `<option value="${escapeHtml(brand)}">${escapeHtml(brand)}</option>`)
     ].join("");
-    $("allPatternCount").textContent = `${allPatternCatalog.length.toLocaleString()} Knitting Fever patterns`;
   }
 
-  function renderAllPatternLibrary() {
+  function patternWeights(pattern) {
+    const weights = new Set();
+    if (pattern.weight && pattern.weight !== "Any") weights.add(pattern.weight);
+    (pattern.usedYarns || []).forEach((yarnKey) => {
+      const matchedYarn = yarnByKey.get(yarnKey);
+      if (matchedYarn?.weight) weights.add(matchedYarn.weight);
+    });
+    return [...weights];
+  }
+
+  function weightFamilies(weight) {
+    const groups = {
+      Lace: ["Lace"],
+      "LACE / SUPER FINE": ["Lace", "Fingering"],
+      Fingering: ["Fingering"],
+      Sport: ["Sport"],
+      DK: ["DK"],
+      Worsted: ["Worsted", "Aran"],
+      Aran: ["Worsted", "Aran"],
+      "MEDIUM / BULKY": ["Worsted", "Aran", "Bulky"],
+      Bulky: ["Bulky"],
+      "BULKY / SUPER BULKY": ["Bulky", "Super Bulky"],
+      "Super Bulky": ["Super Bulky"],
+      Jumbo: ["Jumbo"],
+      Novelty: ["Novelty"]
+    };
+    return groups[weight] || [weight];
+  }
+
+  function patternWeightLabel(pattern) {
+    if (pattern.weight === "Any") return "Any yarn weight";
+    const weights = patternWeights(pattern);
+    return weights.length ? weights.join(", ") : "Not published";
+  }
+
+  function recommendedToolLabel(yarn) {
+    return toolRecommendations[yarn.weight]?.[state.craft] || "Check the yarn label and pattern";
+  }
+
+  function yarnGaugeRange(yarn) {
+    const gauge = state.craft === "crochet" ? yarn?.crochetGauge : yarn?.knitGauge;
+    return Array.isArray(gauge) && gauge.length >= 2 && gauge.every(Number.isFinite) ? gauge : null;
+  }
+
+  function patternGaugeRanges(pattern) {
+    if (Number.isFinite(pattern.gauge)) return [[pattern.gauge, pattern.gauge]];
+    return (pattern.usedYarns || [])
+      .map((yarnKey) => yarnGaugeRange(yarnByKey.get(yarnKey)))
+      .filter(Boolean);
+  }
+
+  function formatGaugeRange(range) {
+    if (!range) return "Not published";
+    return `${range[0]}${range[1] !== range[0] ? `–${range[1]}` : ""} sts / 4 in`;
+  }
+
+  function patternGaugeLabel(pattern) {
+    const ranges = patternGaugeRanges(pattern);
+    if (!ranges.length) return "Not published";
+    const minimum = Math.min(...ranges.map((range) => range[0]));
+    const maximum = Math.max(...ranges.map((range) => range[1]));
+    return `${minimum}${maximum !== minimum ? `–${maximum}` : ""} sts / 4 in`;
+  }
+
+  function gaugeRangesOverlap(first, second) {
+    return Boolean(first && second && first[0] <= second[1] && second[0] <= first[1]);
+  }
+
+  function gaugeCompatibilityPoints(pattern, yarn) {
+    const selectedRange = yarnGaugeRange(yarn);
+    const ranges = patternGaugeRanges(pattern);
+    if (!selectedRange || !ranges.length) return 0;
+    const selectedMidpoint = (selectedRange[0] + selectedRange[1]) / 2;
+    return Math.max(...ranges.map((range) => {
+      const midpoint = (range[0] + range[1]) / 2;
+      const centerCloseness = Math.max(0, 1 - Math.abs(midpoint - selectedMidpoint) / Math.max(1, selectedMidpoint));
+      if (gaugeRangesOverlap(range, selectedRange)) return 50 + Math.round(centerCloseness * 15);
+      const gap = range[0] > selectedRange[1] ? range[0] - selectedRange[1] : selectedRange[0] - range[1];
+      const nearCloseness = Math.max(0, 1 - gap / Math.max(4, selectedMidpoint * 0.5));
+      return Math.round(nearCloseness * 49);
+    }));
+  }
+
+  function weightCompatibilityPoints(pattern, yarn) {
+    if (pattern.weight === "Any") return 20;
+    const weightOrder = new Map([
+      ["Lace", 0], ["Fingering", 1], ["Sport", 2], ["DK", 3],
+      ["Worsted", 4], ["Aran", 4], ["Bulky", 5], ["Super Bulky", 6], ["Jumbo", 7]
+    ]);
+    const yarnFamilies = weightFamilies(yarn.weight);
+    const patternFamilies = patternWeights(pattern).flatMap(weightFamilies);
+    if (patternFamilies.some((weight) => yarnFamilies.includes(weight))) return 30;
+    const distances = patternFamilies.flatMap((patternWeight) => yarnFamilies.map((yarnWeight) => {
+      const patternLevel = weightOrder.get(patternWeight);
+      const yarnLevel = weightOrder.get(yarnWeight);
+      return Number.isFinite(patternLevel) && Number.isFinite(yarnLevel) ? Math.abs(patternLevel - yarnLevel) : Infinity;
+    }));
+    return distances.length && Math.min(...distances) === 1 ? 15 : 0;
+  }
+
+  function rankBand(score) {
+    return score >= 80 ? "high" : score >= 40 ? "medium" : "low";
+  }
+
+  function rankedPatternMatch(pattern, yarn) {
+    const yarnKey = `${yarn.brand}|${yarn.name}`;
+    const exact = (pattern.usedYarns || []).includes(yarnKey);
+    const selectedYarnGauge = yarnGaugeRange(yarn);
+    const gaugeMatch = patternGaugeRanges(pattern).some((range) => gaugeRangesOverlap(range, selectedYarnGauge));
+    const yarnWeights = new Set(weightFamilies(yarn.weight));
+    const weightMatch = pattern.weight === "Any" || patternWeights(pattern)
+      .flatMap(weightFamilies)
+      .some((weight) => yarnWeights.has(weight));
+    const gaugePoints = gaugeCompatibilityPoints(pattern, yarn);
+    const weightPoints = weightCompatibilityPoints(pattern, yarn);
+    const score = exact ? 100 : Math.min(99, gaugePoints + weightPoints);
+    const reason = exact
+      ? `Written for ${yarn.name}.`
+      : gaugeMatch && weightMatch
+      ? "Strong gauge and yarn-weight match. Make a swatch before substituting."
+      : gaugeMatch && !weightMatch
+      ? "Gauge overlaps, but the listed yarn weight does not match."
+      : weightMatch && !gaugeMatch
+      ? "Yarn weight matches; the score reflects the gauge difference or missing gauge."
+      : score > 0
+      ? "A partial gauge or neighboring-weight match; swatch carefully before substituting."
+      : "No confirmed gauge and yarn-weight match.";
+    return { score, reason, gaugeMatch, weightMatch, gaugePoints, weightPoints, projectMatch: pattern.inferredProject === state.project };
+  }
+
+  function renderRankedPatternLibrary() {
+    const yarn = currentYarn();
     const query = normalizedKey($("patternSearch").value);
     const brand = $("patternBrandFilter").value;
-    const filtered = allPatternCatalog.filter((pattern) => {
-      const brandMatch = !brand || (pattern.brands || []).includes(brand);
-      const searchable = normalizedKey([
-        pattern.name,
-        ...(pattern.brands || []),
-        ...(pattern.usedYarns || [])
-      ].join(" "));
-      return brandMatch && (!query || searchable.includes(query));
-    });
+    const filtered = rankedPatternCatalog
+      .filter((pattern) => pattern.craft === state.craft)
+      .filter((pattern) => !brand || (pattern.brands || []).includes(brand))
+      .filter((pattern) => !query || normalizedKey([
+          pattern.name,
+          pattern.inferredProject,
+          ...(pattern.brands || []),
+          ...(pattern.usedYarns || [])
+        ].join(" ")).includes(query))
+      .map((pattern) => ({ ...pattern, ...rankedPatternMatch(pattern, yarn) }))
+      .sort((a, b) => b.score - a.score || Number(b.projectMatch) - Number(a.projectMatch) || a.name.localeCompare(b.name));
     const visible = filtered.slice(0, state.patternVisible);
 
     $("allPatternGrid").innerHTML = visible.map((pattern) => {
       const yarnLabels = (pattern.usedYarns || []).slice(0, 3).map((yarnKey) => yarnKey.replace("|", " — "));
       const extraYarns = Math.max(0, (pattern.usedYarns || []).length - yarnLabels.length);
       const details = yarnLabels.length
-        ? `Matched yarn${pattern.usedYarns.length === 1 ? "" : "s"}: ${yarnLabels.join(", ")}${extraYarns ? `, plus ${extraYarns} more` : ""}`
-        : `Brand: ${(pattern.brands || []).join(", ")}`;
+        ? `Listed yarn${pattern.usedYarns.length === 1 ? "" : "s"}: ${yarnLabels.join(", ")}${extraYarns ? `, plus ${extraYarns} more` : ""}`
+        : (pattern.brands || []).length ? `Brand: ${(pattern.brands || []).join(", ")}` : "Yarn not listed";
       const ravelryUrl = `https://www.ravelry.com/patterns/search#query=${encodeURIComponent(`${pattern.name} ${(pattern.brands || []).join(" ")}`)}&sort=best`;
+      const craftLabel = state.craft === "crochet" ? "Crochet" : "Knitting";
+      const gaugeLabel = patternGaugeLabel(pattern);
+      const yarnGaugeLabel = formatGaugeRange(yarnGaugeRange(yarn));
+      const patternWeight = patternWeightLabel(pattern);
+      const toolLabel = recommendedToolLabel(yarn);
+      const toolName = state.craft === "crochet" ? "Suggested hook" : "Suggested needles";
+      const primaryLabel = /knittingfever\.com/i.test(pattern.url || "") ? "View on Knitting Fever" : "View pattern";
       return `<article class="pattern">
         ${patternMedia(pattern)}
         <div class="pattern-body">
-          <div class="match compatible">Knitting Fever pattern</div>
+          <div class="rank rank-${rankBand(pattern.score)}">${pattern.score}% match</div>
           <h3>${escapeHtml(pattern.name)}</h3>
-          <p>${escapeHtml(details)}. Confirm yarn, sizing, and yardage on the official pattern page.</p>
+          <p>${craftLabel} · ${escapeHtml(pattern.inferredProject)}${pattern.projectMatch ? " · Selected project" : ""}<br>
+          <strong>Pattern gauge:</strong> ${escapeHtml(gaugeLabel)}<br>
+          <strong>Yarn gauge:</strong> ${escapeHtml(yarnGaugeLabel)}<br>
+          <strong>Pattern weight:</strong> ${escapeHtml(patternWeight)}<br>
+          <strong>Yarn weight:</strong> ${escapeHtml(yarn.weight)}<br>
+          <strong>${toolName}:</strong> ${escapeHtml(toolLabel)}<br>
+          ${escapeHtml(pattern.reason)}<br>${escapeHtml(details)}</p>
           <div class="pattern-links">
-            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View on Knitting Fever →</a>
+            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">${primaryLabel} →</a>
             <a href="${escapeHtml(ravelryUrl)}" target="_blank" rel="noopener">Find on Ravelry →</a>
           </div>
         </div>
@@ -580,7 +794,10 @@
     }).join("");
 
     const shown = Math.min(visible.length, filtered.length);
-    $("allPatternSummary").textContent = `Showing ${shown.toLocaleString()} of ${filtered.length.toLocaleString()} matching ${filtered.length === 1 ? "pattern" : "patterns"}.`;
+    const craftLabel = state.craft === "crochet" ? "crochet" : "knitting";
+    const exactCount = filtered.filter((pattern) => pattern.score === 100).length;
+    $("allPatternCount").textContent = `${filtered.length.toLocaleString()} ${craftLabel} patterns`;
+    $("allPatternSummary").textContent = `Showing ${shown.toLocaleString()} of ${filtered.length.toLocaleString()} ${craftLabel} patterns ranked for ${yarn.name}. ${exactCount.toLocaleString()} exact ${exactCount === 1 ? "match" : "matches"}.`;
     const more = $("showMorePatterns");
     more.hidden = shown >= filtered.length;
     more.textContent = `Show ${Math.min(24, filtered.length - shown).toLocaleString()} more patterns`;
@@ -589,14 +806,13 @@
   function renderAll() {
     renderMeta();
     renderProjects();
-    renderPatterns();
-    renderKfiExactPatterns();
-    renderNoveltyBrandPatterns();
+    renderRankedPatternLibrary();
     renderBuyEstimate();
   }
 
   function setCraft(craft) {
     state.craft = craft;
+    state.patternVisible = 24;
     ["knit", "crochet"].forEach((name) => {
       const active = name === craft;
       $(name).classList.toggle("active", active);
@@ -613,20 +829,15 @@
     $("buyProject").value = state.project;
     renderCatalog();
     populatePatternBrands();
-    renderAllPatternLibrary();
     renderAll();
 
     $("brandSelect").addEventListener("change", () => {
-      state.kfiExpanded = false;
-      state.noveltyExpanded = false;
-      $("noveltyPatternSection").open = false;
+      state.patternVisible = 24;
       populateYarns();
       renderAll();
     });
     $("yarnSelect").addEventListener("change", () => {
-      state.kfiExpanded = false;
-      state.noveltyExpanded = false;
-      $("noveltyPatternSection").open = false;
+      state.patternVisible = 24;
       renderAll();
     });
     $("skeins").addEventListener("input", renderAll);
@@ -639,28 +850,20 @@
     $("buyProject").addEventListener("change", renderBuyEstimate);
     $("size").addEventListener("change", renderBuyEstimate);
     $("buffer").addEventListener("change", renderBuyEstimate);
-    $("toggleKfiPatterns").addEventListener("click", () => {
-      state.kfiExpanded = !state.kfiExpanded;
-      renderKfiExactPatterns();
-    });
-    $("toggleNoveltyPatterns").addEventListener("click", () => {
-      state.noveltyExpanded = !state.noveltyExpanded;
-      renderNoveltyBrandPatterns();
-    });
     $("patternSearch").addEventListener("input", () => {
       state.patternVisible = 24;
-      renderAllPatternLibrary();
+      renderRankedPatternLibrary();
     });
     $("patternBrandFilter").addEventListener("change", () => {
       state.patternVisible = 24;
-      renderAllPatternLibrary();
+      renderRankedPatternLibrary();
     });
     $("showMorePatterns").addEventListener("click", () => {
       state.patternVisible += 24;
-      renderAllPatternLibrary();
+      renderRankedPatternLibrary();
     });
   }
 
-  window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn, uniqueNoveltyBrandPatterns, allPatternCatalog };
+  window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn, uniqueNoveltyBrandPatterns, allPatternCatalog, rankedPatternCatalog, inferredPatternCraft, rankedPatternMatch, gaugeCompatibilityPoints, weightCompatibilityPoints, patternGaugeLabel, patternWeightLabel, recommendedToolLabel };
   init();
 }());

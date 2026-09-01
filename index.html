@@ -78,39 +78,20 @@
       <div id="projectCards" class="cards" aria-live="polite"></div>
     </section>
 
-    <section id="kfiPatternSection" class="section" aria-labelledby="kfi-patterns-title" hidden>
+    <section id="rankedPatternSection" class="section" aria-labelledby="patterns-title">
       <div class="section-head">
         <div>
-          <div class="kicker">Step 3 · Official yarn pairings</div>
-          <h2 id="kfi-patterns-title">Patterns made for this yarn</h2>
+          <div class="kicker">Step 3</div>
+          <h2 id="patterns-title">Ranked patterns for your yarn</h2>
         </div>
-        <p id="kfiPatternSummary"></p>
+        <p id="allPatternCount"></p>
       </div>
-      <div id="kfiExactPatterns" class="patterns" aria-live="polite"></div>
-      <button id="toggleKfiPatterns" class="secondary" type="button" hidden></button>
-    </section>
-
-    <details id="compatiblePatternSection" class="panel section compatible-patterns">
-      <summary>
-        <span class="kicker">More ideas</span>
-        <span id="compatiblePatternTitle" class="library-title">Browse compatible project ideas</span>
-        <span id="patternSummary" class="summary-note">These match by yarn weight or gauge; confirm the final pattern details.</span>
-      </summary>
-      <div id="patterns" class="patterns" aria-live="polite"></div>
-    </details>
-
-    <details id="noveltyPatternSection" class="panel section brand-library" hidden>
-      <summary>
-        <span class="kicker">Complete brand library</span>
-        <span id="noveltyPatternTitle" class="library-title">Browse more patterns from this brand</span>
-        <span id="noveltyPatternSummary" class="summary-note"></span>
-      </summary>
-      <div id="noveltyPatterns" class="patterns" aria-live="polite"></div>
-      <button id="toggleNoveltyPatterns" class="secondary" type="button" hidden></button>
-    </details>
-
-    <details id="allPatternLibrary" class="panel section pattern-library">
-      <summary>Browse all <span id="allPatternCount">Knitting Fever patterns</span></summary>
+      <div class="rank-legend" aria-label="Pattern match ranking scale">
+        <strong>Compatibility scale: 100% → 0%</strong>
+        <span class="rank rank-high">100% Strongest match</span>
+        <span class="rank rank-medium">Scores decrease as gauge and weight differ</span>
+        <span class="rank rank-low">0% No confirmed match</span>
+      </div>
       <div class="library-controls">
         <div class="field">
           <label for="patternSearch">Search patterns</label>
@@ -119,14 +100,14 @@
         <div class="field">
           <label for="patternBrandFilter">Brand</label>
           <select id="patternBrandFilter">
-            <option value="">All Knitting Fever brands</option>
+            <option value="">All pattern brands</option>
           </select>
         </div>
       </div>
       <p id="allPatternSummary" class="helper" aria-live="polite"></p>
       <div id="allPatternGrid" class="patterns pattern-library-grid" aria-live="polite"></div>
       <button id="showMorePatterns" class="secondary" type="button" hidden></button>
-    </details>
+    </section>
 
     <section class="panel section reverse" aria-labelledby="buy-title">
       <div>
@@ -168,7 +149,7 @@
     </details>
 
     <footer>
-      Project yardage is an estimate. Always check the final pattern, size, gauge, and dye lot before buying yarn.
+      Project yardage and tool ranges are estimates. Always swatch and check the final pattern, size, gauge, needle or hook, and dye lot before buying yarn.
     </footer>
   </main>
 
