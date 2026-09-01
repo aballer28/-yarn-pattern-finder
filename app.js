@@ -189,6 +189,13 @@
         ? "Your amount may work for at least one listed size."
         : `You may need ${additionalSkeins} more skein${additionalSkeins === 1 ? "" : "s"}.`;
       const label = pattern.exact ? "Pattern uses this yarn" : pattern.weight === "Any" ? "Flexible-weight option" : "Compatible by weight";
+      const patternLinks = [];
+      if (pattern.url) {
+        patternLinks.push(`<a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">${pattern.ravelryUrl ? "Official pattern" : `View on ${escapeHtml(pattern.sourceBrand || "pattern site")}`} →</a>`);
+      }
+      if (pattern.ravelryUrl) {
+        patternLinks.push(`<a href="${escapeHtml(pattern.ravelryUrl)}" target="_blank" rel="noopener">View on Ravelry →</a>`);
+      }
 
       return `<article class="pattern" data-yarn-key="${escapeHtml(yarnKey)}">
         ${patternMedia(pattern)}
@@ -197,7 +204,7 @@
           <h3>${escapeHtml(pattern.name)}</h3>
           <p>${escapeHtml(pattern.designer)} · ${escapeHtml(pattern.project)} · ${escapeHtml(pattern.weight)}${pattern.gauge ? ` · ${pattern.gauge} sts / 4 in` : ""}<br>
           ${formatNumber(pattern.minYards)}–${formatNumber(pattern.maxYards)} yd · ${pattern.free ? "Free pattern" : "Pattern listing"}<br>${escapeHtml(availability)}</p>
-          <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View on ${escapeHtml(pattern.sourceBrand || "pattern site")} →</a>
+          <div class="pattern-links">${patternLinks.join("")}</div>
         </div>
       </article>`;
     });

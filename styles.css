@@ -222,6 +222,7 @@ select:focus, input:focus, button:focus-visible, summary:focus-visible {
 .pattern h3 { margin: 7px 0 5px; font-size: 19px; }
 .pattern p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.48; }
 .pattern a { color: var(--navy); font-weight: 850; text-decoration: underline; text-underline-offset: 2px; }
+.pattern-links { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 
 .search-card { border-style: dashed; }
 .search-card .pattern-placeholder { background: #f3f0e8; color: var(--warn); }
