@@ -105,7 +105,11 @@
     return [...merged.values()];
   }
 
-  const yarns = dedupeYarns([...(window.YARN_CATALOG || []), ...(window.KFI_YARN_CATALOG || [])]);
+  const yarns = dedupeYarns([
+    ...(window.YARN_CATALOG || []),
+    ...(window.KFI_YARN_CATALOG || []),
+    ...(window.KNIT_PICKS_YARN_CATALOG || []).filter((yarn) => yarn.yards > 0 && yarn.grams > 0)
+  ]);
   const patterns = dedupePatterns([...(window.PATTERN_CATALOG || []), ...(window.KFI_PATTERN_CATALOG || [])]);
   const kfiPatternIndex = (window.KFI_PATTERN_INDEX || []).map(([id, name, image, url, usedYarns]) => ({
     kfiDesignId: String(id),
@@ -126,6 +130,11 @@
     usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
     brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
   }));
+  const knitPicksPatternCatalog = (window.KNIT_PICKS_PATTERN_CATALOG || []).map((pattern) => ({
+    ...pattern,
+    usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
+    brands: ["Knit Picks"]
+  }));
 
   function buildMasterPatternCatalog() {
     const byIdentity = new Map();
@@ -135,7 +144,8 @@
         brands: [...new Set(pattern.usedYarns.map((yarnKey) => yarnKey.split("|")[0]))]
       })),
       ...noveltyPatternCatalog.map((pattern) => ({ ...pattern, brands: [pattern.brand], usedYarns: [] })),
-      ...externalPatternCatalog
+      ...externalPatternCatalog,
+      ...knitPicksPatternCatalog
     ];
 
     sources.forEach((incoming) => {
@@ -719,7 +729,8 @@
   }
 
   function recommendedToolLabel(yarn) {
-    return toolRecommendations[yarn.weight]?.[state.craft] || "Check the yarn label and pattern";
+    const published = state.craft === "crochet" ? yarn?.hookSize : yarn?.needleSize;
+    return published || toolRecommendations[yarn.weight]?.[state.craft] || "Check the yarn label and pattern";
   }
 
   function yarnGaugeRange(yarn) {
@@ -841,8 +852,10 @@
       const gaugeLabel = patternGaugeLabel(pattern);
       const yarnGaugeLabel = formatGaugeRange(yarnGaugeRange(yarn));
       const patternWeight = patternWeightLabel(pattern);
-      const toolLabel = recommendedToolLabel(yarn);
-      const toolName = state.craft === "crochet" ? "Suggested hook" : "Suggested needles";
+      const toolLabel = pattern.toolSize || recommendedToolLabel(yarn);
+      const toolName = pattern.toolSize
+        ? (state.craft === "crochet" ? "Pattern hook" : "Pattern needles")
+        : (state.craft === "crochet" ? "Suggested hook" : "Suggested needles");
       const primaryLabel = /knittingfever\.com/i.test(pattern.url || "") ? "View on Knitting Fever" : "View pattern";
       return `<article class="pattern">
         ${patternMedia(pattern)}
