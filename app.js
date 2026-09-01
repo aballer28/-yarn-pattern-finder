@@ -15,11 +15,18 @@
     ["queensland", "Queensland Collection"],
     ["queensland collection", "Queensland Collection"],
     ["kfi collection", "Knitting Fever Collection"],
-    ["knitting fever collection", "Knitting Fever Collection"]
+    ["knitting fever collection", "Knitting Fever Collection"],
+    ["kfi novelty", "Knitting Fever Novelty"],
+    ["knitting fever novelty", "Knitting Fever Novelty"]
   ]);
 
   function canonicalBrand(brand) {
     return brandAliases.get(normalizedKey(brand)) || brand;
+  }
+
+  function canonicalYarnKey(value) {
+    const [brand, ...nameParts] = String(value || "").split("|");
+    return nameParts.length ? `${canonicalBrand(brand)}|${nameParts.join("|")}` : value;
   }
 
   function dedupeYarns(items) {
@@ -57,19 +64,23 @@
   function dedupePatterns(items) {
     const merged = new Map();
     items.forEach((incoming) => {
-      const key = patternIdentity(incoming);
+      const normalized = {
+        ...incoming,
+        usedYarns: (incoming.usedYarns || []).map(canonicalYarnKey)
+      };
+      const key = patternIdentity(normalized);
       const existing = merged.get(key);
       if (!existing) {
-        merged.set(key, incoming);
+        merged.set(key, normalized);
         return;
       }
       merged.set(key, {
-        ...incoming,
+        ...normalized,
         ...existing,
-        usedYarns: [...new Set([...(existing.usedYarns || []), ...(incoming.usedYarns || [])])],
-        image: existing.image || incoming.image,
-        ravelryUrl: existing.ravelryUrl || incoming.ravelryUrl,
-        url: existing.url || incoming.url
+        usedYarns: [...new Set([...(existing.usedYarns || []), ...normalized.usedYarns])],
+        image: existing.image || normalized.image,
+        ravelryUrl: existing.ravelryUrl || normalized.ravelryUrl,
+        url: existing.url || normalized.url
       });
     });
     return [...merged.values()];
@@ -82,7 +93,14 @@
     name,
     image,
     url,
-    usedYarns: usedYarns || []
+    usedYarns: (usedYarns || []).map(canonicalYarnKey)
+  }));
+  const noveltyPatternCatalog = (window.NOVELTY_PATTERN_CATALOG || []).map(([id, name, image, url, brand]) => ({
+    kfiDesignId: String(id),
+    name,
+    image,
+    url,
+    brand: canonicalBrand(brand)
   }));
   const $ = (id) => document.getElementById(id);
 
@@ -111,7 +129,7 @@
   };
 
   const sizeFactors = { XS: 0.78, S: 0.88, M: 1, L: 1.12, XL: 1.24, "2X": 1.38, "3X": 1.52, "4X": 1.68, "5X": 1.84 };
-  const state = { craft: "knit", project: "Hat", kfiExpanded: false };
+  const state = { craft: "knit", project: "Hat", kfiExpanded: false, noveltyExpanded: false };
 
   function escapeHtml(value) {
     return String(value)
@@ -278,6 +296,25 @@
     return [...byTitle.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  function uniqueNoveltyBrandPatterns(brand) {
+    if (!["EuroYarns (Novelty)", "Knitting Fever Novelty"].includes(brand)) return [];
+    const official = noveltyPatternCatalog.filter((pattern) => pattern.brand === brand);
+    const yarnLinked = kfiPatternIndex.filter((pattern) =>
+      pattern.usedYarns.some((yarnKey) => yarnKey.startsWith(`${brand}|`))
+    );
+    const byIdentity = new Map();
+    [...official, ...yarnLinked].forEach((pattern) => byIdentity.set(patternIdentity(pattern), pattern));
+    const byTitle = new Map();
+    [...byIdentity.values()].forEach((pattern) => {
+      const key = normalizedKey(pattern.name);
+      const existing = byTitle.get(key);
+      if (!existing || Number(pattern.kfiDesignId) > Number(existing.kfiDesignId)) {
+        byTitle.set(key, pattern);
+      }
+    });
+    return [...byTitle.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   function renderPatterns() {
     const yarn = currentYarn();
     const yarnKey = `${yarn.brand}|${yarn.name}`;
@@ -372,6 +409,54 @@
     toggle.setAttribute("aria-expanded", String(state.kfiExpanded));
   }
 
+  function renderNoveltyBrandPatterns() {
+    const yarn = currentYarn();
+    const yarnKey = `${yarn.brand}|${yarn.name}`;
+    const brandPatterns = uniqueNoveltyBrandPatterns(yarn.brand);
+    const exactPatterns = [
+      ...matchingPatterns(yarn).filter((pattern) => pattern.exact),
+      ...uniqueKfiPatternsForYarn(yarnKey)
+    ];
+    const exactIds = new Set(exactPatterns.map(patternIdentity));
+    const exactNames = new Set(exactPatterns.map((pattern) => normalizedKey(pattern.name)));
+    const additional = brandPatterns.filter((pattern) =>
+      !exactIds.has(patternIdentity(pattern)) && !exactNames.has(normalizedKey(pattern.name))
+    );
+    const section = $("noveltyPatternSection");
+
+    if (!brandPatterns.length) {
+      section.hidden = true;
+      $("noveltyPatterns").innerHTML = "";
+      $("toggleNoveltyPatterns").hidden = true;
+      return;
+    }
+
+    const visible = state.noveltyExpanded ? additional : additional.slice(0, 12);
+    $("noveltyPatterns").innerHTML = visible.map((pattern) => {
+      const ravelryUrl = `https://www.ravelry.com/patterns/search#query=${encodeURIComponent(`${pattern.name} ${yarn.brand}`)}&sort=best`;
+      return `<article class="pattern">
+        ${patternMedia(pattern)}
+        <div class="pattern-body">
+          <div class="match compatible">From this brand's pattern library</div>
+          <h3>${escapeHtml(pattern.name)}</h3>
+          <p>Official Knitting Fever design. This pattern may use a different yarn from the same brand, so check the pattern page before substituting.</p>
+          <div class="pattern-links">
+            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View on Knitting Fever →</a>
+            <a href="${escapeHtml(ravelryUrl)}" target="_blank" rel="noopener">Find on Ravelry →</a>
+          </div>
+        </div>
+      </article>`;
+    }).join("");
+
+    section.hidden = false;
+    const exactBrandCount = brandPatterns.length - additional.length;
+    $("noveltyPatternSummary").textContent = `${brandPatterns.length.toLocaleString()} unique official pattern ${brandPatterns.length === 1 ? "title" : "titles"} in ${yarn.brand}. ${exactBrandCount ? `${exactBrandCount} yarn-specific ${exactBrandCount === 1 ? "match is" : "matches are"} shown above.` : ""}`.trim();
+    const toggle = $("toggleNoveltyPatterns");
+    toggle.hidden = additional.length <= 12;
+    toggle.textContent = state.noveltyExpanded ? "Show fewer brand patterns" : `Show all ${additional.length.toLocaleString()} additional brand patterns`;
+    toggle.setAttribute("aria-expanded", String(state.noveltyExpanded));
+  }
+
   function renderBuyEstimate() {
     const yarn = currentYarn();
     if (yarn.weight === "Novelty") {
@@ -409,6 +494,7 @@
     renderProjects();
     renderPatterns();
     renderKfiExactPatterns();
+    renderNoveltyBrandPatterns();
     renderBuyEstimate();
   }
 
@@ -433,11 +519,13 @@
 
     $("brandSelect").addEventListener("change", () => {
       state.kfiExpanded = false;
+      state.noveltyExpanded = false;
       populateYarns();
       renderAll();
     });
     $("yarnSelect").addEventListener("change", () => {
       state.kfiExpanded = false;
+      state.noveltyExpanded = false;
       renderAll();
     });
     $("skeins").addEventListener("input", renderAll);
@@ -454,8 +542,12 @@
       state.kfiExpanded = !state.kfiExpanded;
       renderKfiExactPatterns();
     });
+    $("toggleNoveltyPatterns").addEventListener("click", () => {
+      state.noveltyExpanded = !state.noveltyExpanded;
+      renderNoveltyBrandPatterns();
+    });
   }
 
-  window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn };
+  window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn, uniqueNoveltyBrandPatterns };
   init();
 }());

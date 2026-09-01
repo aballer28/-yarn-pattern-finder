@@ -101,6 +101,18 @@
       <button id="toggleKfiPatterns" class="secondary" type="button" hidden></button>
     </section>
 
+    <section id="noveltyPatternSection" class="section" aria-labelledby="novelty-patterns-title" hidden>
+      <div class="section-head">
+        <div>
+          <div class="kicker">Complete brand library</div>
+          <h2 id="novelty-patterns-title">More patterns from this brand</h2>
+        </div>
+        <p id="noveltyPatternSummary"></p>
+      </div>
+      <div id="noveltyPatterns" class="patterns" aria-live="polite"></div>
+      <button id="toggleNoveltyPatterns" class="secondary" type="button" hidden></button>
+    </section>
+
     <section class="panel section reverse" aria-labelledby="buy-title">
       <div>
         <div class="kicker">Work backward</div>
@@ -148,6 +160,7 @@
   <script src="catalog.js"></script>
   <script src="kfi-catalog.js"></script>
   <script src="kfi-pattern-index.js"></script>
+  <script src="novelty-pattern-catalog.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
