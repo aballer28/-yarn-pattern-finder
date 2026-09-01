@@ -113,6 +113,25 @@
       <button id="toggleNoveltyPatterns" class="secondary" type="button" hidden></button>
     </section>
 
+    <details id="allPatternLibrary" class="panel section pattern-library">
+      <summary>Browse all <span id="allPatternCount">Knitting Fever patterns</span></summary>
+      <div class="library-controls">
+        <div class="field">
+          <label for="patternSearch">Search patterns</label>
+          <input id="patternSearch" type="search" placeholder="Pattern, brand, or yarn name">
+        </div>
+        <div class="field">
+          <label for="patternBrandFilter">Brand</label>
+          <select id="patternBrandFilter">
+            <option value="">All Knitting Fever brands</option>
+          </select>
+        </div>
+      </div>
+      <p id="allPatternSummary" class="helper" aria-live="polite"></p>
+      <div id="allPatternGrid" class="patterns pattern-library-grid" aria-live="polite"></div>
+      <button id="showMorePatterns" class="secondary" type="button" hidden></button>
+    </details>
+
     <section class="panel section reverse" aria-labelledby="buy-title">
       <div>
         <div class="kicker">Work backward</div>

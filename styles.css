@@ -116,7 +116,7 @@ button, input, select { font: inherit; }
 .field label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 850; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-select, input[type="number"] {
+select, input[type="number"], input[type="search"] {
   width: 100%;
   min-height: 46px;
   border: 1px solid #cfd5dd;
@@ -241,6 +241,10 @@ select:focus, input:focus, button:focus-visible, summary:focus-visible {
 .search-card { border-style: dashed; }
 .search-card .pattern-placeholder { background: #f3f0e8; color: var(--warn); }
 
+.pattern-library summary { cursor: pointer; font-weight: 900; }
+.library-controls { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-top: 20px; }
+.pattern-library-grid { margin-top: 14px; }
+
 .reverse { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .answer { display: flex; flex-direction: column; justify-content: center; border-radius: 18px; background: #edf3fa; padding: 24px; }
 .answer-big { margin: 4px 0 5px; font-size: 46px; font-weight: 950; letter-spacing: -0.055em; }
@@ -269,7 +273,7 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; line-height: 1.
   .top > .kicker { margin-top: 5px; }
   .hero-copy, .panel { padding: 20px; }
   .hero-copy h1 { font-size: 42px; }
-  .row, .cards, .patterns { grid-template-columns: 1fr; }
+  .row, .cards, .patterns, .library-controls { grid-template-columns: 1fr; }
   .section-head { display: block; }
   .section-head p { margin-top: 6px; text-align: left; }
   .project { min-height: 0; }
