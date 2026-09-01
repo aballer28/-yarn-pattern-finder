@@ -241,7 +241,11 @@ select:focus, input:focus, button:focus-visible, summary:focus-visible {
 .search-card { border-style: dashed; }
 .search-card .pattern-placeholder { background: #f3f0e8; color: var(--warn); }
 
-.pattern-library summary { cursor: pointer; font-weight: 900; }
+.pattern-library summary, .brand-library summary, .compatible-patterns summary { cursor: pointer; font-weight: 900; }
+.brand-library summary .kicker, .compatible-patterns summary .kicker { display: block; margin-bottom: 5px; }
+.library-title { display: block; font-size: 21px; letter-spacing: -0.025em; }
+.summary-note { display: block; margin-top: 5px; color: var(--muted); font-size: 13px; font-weight: 500; line-height: 1.4; }
+.brand-library[open] summary, .compatible-patterns[open] summary { margin-bottom: 18px; }
 .library-controls { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-top: 20px; }
 .pattern-library-grid { margin-top: 14px; }
 
@@ -267,7 +271,7 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; line-height: 1.
   .catalog-list { columns: 2; }
 }
 
-@media (max-width: 580px) {
+@media (max-width: 760px) {
   .wrap { width: min(100% - 24px, 1160px); padding-top: 18px; }
   .top { display: block; }
   .top > .kicker { margin-top: 5px; }

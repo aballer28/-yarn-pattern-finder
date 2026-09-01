@@ -78,22 +78,11 @@
       <div id="projectCards" class="cards" aria-live="polite"></div>
     </section>
 
-    <section class="section" aria-labelledby="patterns-title">
-      <div class="section-head">
-        <div>
-          <div class="kicker">Step 3</div>
-          <h2 id="patterns-title">Matching patterns</h2>
-        </div>
-        <p id="patternSummary">Exact yarn pairings rank first, then compatible weight and gauge.</p>
-      </div>
-      <div id="patterns" class="patterns" aria-live="polite"></div>
-    </section>
-
     <section id="kfiPatternSection" class="section" aria-labelledby="kfi-patterns-title" hidden>
       <div class="section-head">
         <div>
-          <div class="kicker">Official yarn pairings</div>
-          <h2 id="kfi-patterns-title">More patterns made for this yarn</h2>
+          <div class="kicker">Step 3 · Official yarn pairings</div>
+          <h2 id="kfi-patterns-title">Patterns made for this yarn</h2>
         </div>
         <p id="kfiPatternSummary"></p>
       </div>
@@ -101,17 +90,24 @@
       <button id="toggleKfiPatterns" class="secondary" type="button" hidden></button>
     </section>
 
-    <section id="noveltyPatternSection" class="section" aria-labelledby="novelty-patterns-title" hidden>
-      <div class="section-head">
-        <div>
-          <div class="kicker">Complete brand library</div>
-          <h2 id="novelty-patterns-title">More patterns from this brand</h2>
-        </div>
-        <p id="noveltyPatternSummary"></p>
-      </div>
+    <details id="compatiblePatternSection" class="panel section compatible-patterns">
+      <summary>
+        <span class="kicker">More ideas</span>
+        <span id="compatiblePatternTitle" class="library-title">Browse compatible project ideas</span>
+        <span id="patternSummary" class="summary-note">These match by yarn weight or gauge; confirm the final pattern details.</span>
+      </summary>
+      <div id="patterns" class="patterns" aria-live="polite"></div>
+    </details>
+
+    <details id="noveltyPatternSection" class="panel section brand-library" hidden>
+      <summary>
+        <span class="kicker">Complete brand library</span>
+        <span id="noveltyPatternTitle" class="library-title">Browse more patterns from this brand</span>
+        <span id="noveltyPatternSummary" class="summary-note"></span>
+      </summary>
       <div id="noveltyPatterns" class="patterns" aria-live="polite"></div>
       <button id="toggleNoveltyPatterns" class="secondary" type="button" hidden></button>
-    </section>
+    </details>
 
     <details id="allPatternLibrary" class="panel section pattern-library">
       <summary>Browse all <span id="allPatternCount">Knitting Fever patterns</span></summary>

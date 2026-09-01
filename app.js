@@ -362,7 +362,7 @@
     const yarn = currentYarn();
     const yarnKey = `${yarn.brand}|${yarn.name}`;
     const onHand = skeinsOnHand() * yarn.yards;
-    const matches = matchingPatterns(yarn);
+    const matches = matchingPatterns(yarn).filter((pattern) => !pattern.exact);
 
     const cards = matches.map((pattern) => {
       const enough = onHand >= pattern.minYards;
@@ -370,7 +370,7 @@
       const availability = enough
         ? "Your amount may work for at least one listed size."
         : `You may need ${additionalSkeins} more skein${additionalSkeins === 1 ? "" : "s"}.`;
-      const label = pattern.exact ? "Pattern uses this yarn" : pattern.weight === "Any" ? "Flexible-weight option" : "Compatible by weight";
+      const label = pattern.weight === "Any" ? "Flexible-weight option" : "Compatible by weight";
       const patternLinks = [];
       if (pattern.url) {
         patternLinks.push(`<a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">${pattern.ravelryUrl ? "Official pattern" : `View on ${escapeHtml(pattern.sourceBrand || "pattern site")}`} →</a>`);
@@ -382,7 +382,7 @@
       return `<article class="pattern" data-yarn-key="${escapeHtml(yarnKey)}">
         ${patternMedia(pattern)}
         <div class="pattern-body">
-          <div class="match ${pattern.exact ? "" : "compatible"}">${label}</div>
+          <div class="match compatible">${label}</div>
           <h3>${escapeHtml(pattern.name)}</h3>
           <p>${escapeHtml(pattern.designer)} · ${escapeHtml(pattern.project)} · ${escapeHtml(pattern.weight)}${pattern.gauge ? ` · ${pattern.gauge} sts / 4 in` : ""}<br>
           ${formatNumber(pattern.minYards)}–${formatNumber(pattern.maxYards)} yd · ${pattern.free ? "Free pattern" : "Pattern listing"}<br>${escapeHtml(availability)}</p>
@@ -402,32 +402,29 @@
     </article>`);
 
     $("patterns").innerHTML = cards.join("");
-    const exactCount = matches.filter((pattern) => pattern.exact).length;
-    $("patternSummary").textContent = exactCount
-      ? `${exactCount} exact ${exactCount === 1 ? "yarn pairing" : "yarn pairings"} shown first, followed by compatible choices.`
-      : `Showing compatible ${yarn.weight} choices for ${yarn.name}; no curated exact pairing for this project yet.`;
+    $("compatiblePatternTitle").textContent = `Browse compatible ${yarn.weight} ${state.project.toLowerCase()} ideas`;
+    $("patternSummary").textContent = `Optional ${yarn.weight} ideas for ${yarn.name}. These do not necessarily use this exact yarn.`;
   }
 
   function renderKfiExactPatterns() {
     const yarn = currentYarn();
     const yarnKey = `${yarn.brand}|${yarn.name}`;
     const detailedExact = matchingPatterns(yarn).filter((pattern) => pattern.exact);
-    const detailedIds = new Set(detailedExact.map(patternIdentity));
-    const detailedNames = new Set(detailedExact.map((pattern) => normalizedKey(pattern.name)));
     const indexedExact = uniqueKfiPatternsForYarn(yarnKey);
-    const additional = indexedExact.filter((pattern) =>
-      !detailedIds.has(patternIdentity(pattern)) && !detailedNames.has(normalizedKey(pattern.name))
-    );
+    const byTitle = new Map();
+    [...indexedExact, ...detailedExact].forEach((pattern) => byTitle.set(normalizedKey(pattern.name), pattern));
+    const allExact = [...byTitle.values()].sort((a, b) => a.name.localeCompare(b.name));
     const section = $("kfiPatternSection");
 
-    if (!additional.length) {
+    if (!allExact.length) {
       section.hidden = true;
+      $("compatiblePatternSection").open = true;
       $("kfiExactPatterns").innerHTML = "";
       $("toggleKfiPatterns").hidden = true;
       return;
     }
 
-    const visible = state.kfiExpanded ? additional : additional.slice(0, 12);
+    const visible = state.kfiExpanded ? allExact : allExact.slice(0, 3);
     $("kfiExactPatterns").innerHTML = visible.map((pattern) => {
       const ravelryUrl = `https://www.ravelry.com/patterns/search#query=${encodeURIComponent(`${pattern.name} ${yarn.brand}`)}&sort=best`;
       return `<article class="pattern">
@@ -445,10 +442,11 @@
     }).join("");
 
     section.hidden = false;
-    $("kfiPatternSummary").textContent = `${indexedExact.length.toLocaleString()} unique official pattern ${indexedExact.length === 1 ? "title" : "titles"} use ${yarn.name}. ${detailedExact.length ? `${detailedExact.length} fully detailed ${detailedExact.length === 1 ? "match is" : "matches are"} shown above.` : ""}`.trim();
+    $("compatiblePatternSection").open = false;
+    $("kfiPatternSummary").textContent = `${allExact.length.toLocaleString()} unique official ${allExact.length === 1 ? "pattern uses" : "patterns use"} ${yarn.name}.`;
     const toggle = $("toggleKfiPatterns");
-    toggle.hidden = additional.length <= 12;
-    toggle.textContent = state.kfiExpanded ? "Show fewer patterns" : `Show all ${additional.length.toLocaleString()} more patterns`;
+    toggle.hidden = allExact.length <= 3;
+    toggle.textContent = state.kfiExpanded ? "Show fewer patterns" : `Show all ${allExact.length.toLocaleString()} patterns`;
     toggle.setAttribute("aria-expanded", String(state.kfiExpanded));
   }
 
@@ -469,6 +467,7 @@
 
     if (!brandPatterns.length) {
       section.hidden = true;
+      section.open = false;
       $("noveltyPatterns").innerHTML = "";
       $("toggleNoveltyPatterns").hidden = true;
       return;
@@ -492,8 +491,11 @@
     }).join("");
 
     section.hidden = false;
+    $("noveltyPatternTitle").textContent = `Browse ${brandPatterns.length.toLocaleString()} ${yarn.brand} patterns`;
     const exactBrandCount = brandPatterns.length - additional.length;
-    $("noveltyPatternSummary").textContent = `${brandPatterns.length.toLocaleString()} unique official pattern ${brandPatterns.length === 1 ? "title" : "titles"} in ${yarn.brand}. ${exactBrandCount ? `${exactBrandCount} yarn-specific ${exactBrandCount === 1 ? "match is" : "matches are"} shown above.` : ""}`.trim();
+    $("noveltyPatternSummary").textContent = exactBrandCount
+      ? `${exactBrandCount} exact yarn ${exactBrandCount === 1 ? "match is" : "matches are"} already shown above. Open only when you want the whole brand.`
+      : "Open only when you want the whole brand.";
     const toggle = $("toggleNoveltyPatterns");
     toggle.hidden = additional.length <= 12;
     toggle.textContent = state.noveltyExpanded ? "Show fewer brand patterns" : `Show all ${additional.length.toLocaleString()} additional brand patterns`;
@@ -617,12 +619,14 @@
     $("brandSelect").addEventListener("change", () => {
       state.kfiExpanded = false;
       state.noveltyExpanded = false;
+      $("noveltyPatternSection").open = false;
       populateYarns();
       renderAll();
     });
     $("yarnSelect").addEventListener("change", () => {
       state.kfiExpanded = false;
       state.noveltyExpanded = false;
+      $("noveltyPatternSection").open = false;
       renderAll();
     });
     $("skeins").addEventListener("input", renderAll);
