@@ -89,6 +89,18 @@
       <div id="patterns" class="patterns" aria-live="polite"></div>
     </section>
 
+    <section id="kfiPatternSection" class="section" aria-labelledby="kfi-patterns-title" hidden>
+      <div class="section-head">
+        <div>
+          <div class="kicker">Official yarn pairings</div>
+          <h2 id="kfi-patterns-title">More patterns made for this yarn</h2>
+        </div>
+        <p id="kfiPatternSummary"></p>
+      </div>
+      <div id="kfiExactPatterns" class="patterns" aria-live="polite"></div>
+      <button id="toggleKfiPatterns" class="secondary" type="button" hidden></button>
+    </section>
+
     <section class="panel section reverse" aria-labelledby="buy-title">
       <div>
         <div class="kicker">Work backward</div>
@@ -134,6 +146,8 @@
   </main>
 
   <script src="catalog.js"></script>
+  <script src="kfi-catalog.js"></script>
+  <script src="kfi-pattern-index.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

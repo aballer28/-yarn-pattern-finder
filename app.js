@@ -1,8 +1,89 @@
 (function () {
   "use strict";
 
-  const yarns = window.YARN_CATALOG || [];
-  const patterns = window.PATTERN_CATALOG || [];
+  function normalizedKey(value) {
+    return String(value || "")
+      .normalize("NFKD")
+      .toLowerCase()
+      .replace(/[®™©]/g, "")
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  const brandAliases = new Map([
+    ["queensland", "Queensland Collection"],
+    ["queensland collection", "Queensland Collection"],
+    ["kfi collection", "Knitting Fever Collection"],
+    ["knitting fever collection", "Knitting Fever Collection"]
+  ]);
+
+  function canonicalBrand(brand) {
+    return brandAliases.get(normalizedKey(brand)) || brand;
+  }
+
+  function dedupeYarns(items) {
+    const merged = new Map();
+    items.forEach((item) => {
+      const incoming = { ...item, brand: canonicalBrand(item.brand) };
+      const key = `${normalizedKey(incoming.brand)}|${normalizedKey(incoming.name)}`;
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, incoming);
+        return;
+      }
+      merged.set(key, {
+        ...incoming,
+        ...existing,
+        kfiId: existing.kfiId || incoming.kfiId,
+        image: existing.image || incoming.image,
+        knitGauge: existing.knitGauge || incoming.knitGauge,
+        crochetGauge: existing.crochetGauge || incoming.crochetGauge,
+        sourceUrl: existing.sourceUrl || incoming.sourceUrl
+      });
+    });
+    return [...merged.values()];
+  }
+
+  function patternIdentity(pattern) {
+    if (pattern.kfiDesignId) return `kfi:${pattern.kfiDesignId}`;
+    const kfiMatch = String(pattern.url || "").match(/knittingfever\.com\/design\/(\d+)/i);
+    if (kfiMatch) return `kfi:${kfiMatch[1]}`;
+    const ravelryMatch = String(pattern.ravelryUrl || pattern.url || "").match(/ravelry\.com\/patterns\/library\/([^/?#]+)/i);
+    if (ravelryMatch) return `ravelry:${normalizedKey(ravelryMatch[1])}`;
+    return `pattern:${normalizedKey(pattern.name)}|${normalizedKey(pattern.designer)}|${normalizedKey(pattern.craft)}`;
+  }
+
+  function dedupePatterns(items) {
+    const merged = new Map();
+    items.forEach((incoming) => {
+      const key = patternIdentity(incoming);
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, incoming);
+        return;
+      }
+      merged.set(key, {
+        ...incoming,
+        ...existing,
+        usedYarns: [...new Set([...(existing.usedYarns || []), ...(incoming.usedYarns || [])])],
+        image: existing.image || incoming.image,
+        ravelryUrl: existing.ravelryUrl || incoming.ravelryUrl,
+        url: existing.url || incoming.url
+      });
+    });
+    return [...merged.values()];
+  }
+
+  const yarns = dedupeYarns([...(window.YARN_CATALOG || []), ...(window.KFI_YARN_CATALOG || [])]);
+  const patterns = dedupePatterns([...(window.PATTERN_CATALOG || []), ...(window.KFI_PATTERN_CATALOG || [])]);
+  const kfiPatternIndex = (window.KFI_PATTERN_INDEX || []).map(([id, name, image, url, usedYarns]) => ({
+    kfiDesignId: String(id),
+    name,
+    image,
+    url,
+    usedYarns: usedYarns || []
+  }));
   const $ = (id) => document.getElementById(id);
 
   const projectIcons = {
@@ -30,7 +111,7 @@
   };
 
   const sizeFactors = { XS: 0.78, S: 0.88, M: 1, L: 1.12, XL: 1.24, "2X": 1.38, "3X": 1.52, "4X": 1.68, "5X": 1.84 };
-  const state = { craft: "knit", project: "Hat" };
+  const state = { craft: "knit", project: "Hat", kfiExpanded: false };
 
   function escapeHtml(value) {
     return String(value)
@@ -110,6 +191,7 @@
   function renderProjects() {
     const yarn = currentYarn();
     const ranges = baseRanges[yarn.weight] || baseRanges.Worsted;
+    const isNovelty = yarn.weight === "Novelty";
     const onHand = skeinsOnHand() * yarn.yards;
     const multiplier = craftMultiplier();
 
@@ -120,15 +202,17 @@
       const maxSkeins = Math.ceil(maxYards / yarn.yards);
       const possible = onHand >= minYards;
       const shortage = Math.max(1, minSkeins - skeinsOnHand());
-      const status = possible
+      const status = isNovelty
+        ? `<span class="maybe">Use a pattern written for this yarn</span>`
+        : possible
         ? `<span class="good">${onHand >= maxYards ? "Enough for most versions" : "Possible for some sizes/styles"}</span>`
         : `<span class="maybe">About ${shortage} more skein${shortage === 1 ? "" : "s"} needed</span>`;
 
       return `<button class="project ${state.project === project ? "selected" : ""}" type="button" data-project="${escapeHtml(project)}" aria-pressed="${state.project === project}">
         <div class="icon" aria-hidden="true">${projectIcons[project] || "•"}</div>
         <h3>${escapeHtml(project)}</h3>
-        <div class="big">${minSkeins}–${maxSkeins} skeins</div>
-        <div class="sub">About ${formatNumber(minYards)}–${formatNumber(maxYards)} yards<br>${status}</div>
+        <div class="big">${isNovelty ? "Pattern-specific" : `${minSkeins}–${maxSkeins} skeins`}</div>
+        <div class="sub">${isNovelty ? "Novelty yarns do not share a standard yardage range." : `About ${formatNumber(minYards)}–${formatNumber(maxYards)} yards`}<br>${status}</div>
       </button>`;
     }).join("");
 
@@ -167,20 +251,38 @@
     const weights = { Lace: "lace", Fingering: "fingering", Sport: "sport", DK: "dk", Worsted: "worsted", Aran: "aran", Bulky: "bulky", "Super Bulky": "super-bulky" };
     const projects = { Hat: "hat", Scarf: "scarf", Mittens: "mittens", Sweater: "sweater", Shawl: "shawl-wrap", Cowl: "cowl", Baby: "baby", Blanket: "blanket", Socks: "socks", Stocking: "christmas-stocking" };
     const craft = state.craft === "knit" ? "knitting" : "crochet";
-    return `https://www.ravelry.com/patterns/search#craft=${craft}&weight=${weights[yarn.weight] || "worsted"}&pc=${projects[state.project] || "other"}&sort=best`;
+    const weight = weights[yarn.weight] ? `&weight=${weights[yarn.weight]}` : "";
+    return `https://www.ravelry.com/patterns/search#craft=${craft}${weight}&pc=${projects[state.project] || "other"}&sort=best`;
+  }
+
+  function matchingPatterns(yarn) {
+    return patterns
+      .filter((pattern) => pattern.craft === state.craft && pattern.project === state.project)
+      .map((pattern) => ({ ...pattern, ...patternScore(pattern, yarn) }))
+      .filter((pattern) => pattern.exact || pattern.weight === yarn.weight || pattern.weight === "Any")
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+      .slice(0, 8);
+  }
+
+  function uniqueKfiPatternsForYarn(yarnKey) {
+    const byTitle = new Map();
+    kfiPatternIndex
+      .filter((pattern) => pattern.usedYarns.includes(yarnKey))
+      .forEach((pattern) => {
+        const key = normalizedKey(pattern.name);
+        const existing = byTitle.get(key);
+        if (!existing || Number(pattern.kfiDesignId) > Number(existing.kfiDesignId)) {
+          byTitle.set(key, pattern);
+        }
+      });
+    return [...byTitle.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   function renderPatterns() {
     const yarn = currentYarn();
     const yarnKey = `${yarn.brand}|${yarn.name}`;
     const onHand = skeinsOnHand() * yarn.yards;
-
-    const matches = patterns
-      .filter((pattern) => pattern.craft === state.craft && pattern.project === state.project)
-      .map((pattern) => ({ ...pattern, ...patternScore(pattern, yarn) }))
-      .filter((pattern) => pattern.exact || pattern.weight === yarn.weight || pattern.weight === "Any")
-      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-      .slice(0, 8);
+    const matches = matchingPatterns(yarn);
 
     const cards = matches.map((pattern) => {
       const enough = onHand >= pattern.minYards;
@@ -226,8 +328,57 @@
       : `Showing compatible ${yarn.weight} choices for ${yarn.name}; no curated exact pairing for this project yet.`;
   }
 
+  function renderKfiExactPatterns() {
+    const yarn = currentYarn();
+    const yarnKey = `${yarn.brand}|${yarn.name}`;
+    const detailedExact = matchingPatterns(yarn).filter((pattern) => pattern.exact);
+    const detailedIds = new Set(detailedExact.map(patternIdentity));
+    const detailedNames = new Set(detailedExact.map((pattern) => normalizedKey(pattern.name)));
+    const indexedExact = uniqueKfiPatternsForYarn(yarnKey);
+    const additional = indexedExact.filter((pattern) =>
+      !detailedIds.has(patternIdentity(pattern)) && !detailedNames.has(normalizedKey(pattern.name))
+    );
+    const section = $("kfiPatternSection");
+
+    if (!additional.length) {
+      section.hidden = true;
+      $("kfiExactPatterns").innerHTML = "";
+      $("toggleKfiPatterns").hidden = true;
+      return;
+    }
+
+    const visible = state.kfiExpanded ? additional : additional.slice(0, 12);
+    $("kfiExactPatterns").innerHTML = visible.map((pattern) => {
+      const ravelryUrl = `https://www.ravelry.com/patterns/search#query=${encodeURIComponent(`${pattern.name} ${yarn.brand}`)}&sort=best`;
+      return `<article class="pattern">
+        ${patternMedia(pattern)}
+        <div class="pattern-body">
+          <div class="match">Pattern uses this yarn</div>
+          <h3>${escapeHtml(pattern.name)}</h3>
+          <p>Official Knitting Fever design · Exact yarn pairing. Yardage, sizing, and craft details are on the pattern page.</p>
+          <div class="pattern-links">
+            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View on Knitting Fever →</a>
+            <a href="${escapeHtml(ravelryUrl)}" target="_blank" rel="noopener">Find on Ravelry →</a>
+          </div>
+        </div>
+      </article>`;
+    }).join("");
+
+    section.hidden = false;
+    $("kfiPatternSummary").textContent = `${indexedExact.length.toLocaleString()} unique official pattern ${indexedExact.length === 1 ? "title" : "titles"} use ${yarn.name}. ${detailedExact.length ? `${detailedExact.length} fully detailed ${detailedExact.length === 1 ? "match is" : "matches are"} shown above.` : ""}`.trim();
+    const toggle = $("toggleKfiPatterns");
+    toggle.hidden = additional.length <= 12;
+    toggle.textContent = state.kfiExpanded ? "Show fewer patterns" : `Show all ${additional.length.toLocaleString()} more patterns`;
+    toggle.setAttribute("aria-expanded", String(state.kfiExpanded));
+  }
+
   function renderBuyEstimate() {
     const yarn = currentYarn();
+    if (yarn.weight === "Novelty") {
+      $("buyAnswer").textContent = "Use exact pattern";
+      $("buyDetails").textContent = `${yarn.name} has no standard yarn-weight estimate. Open an official design above and follow its listed yardage.`;
+      return;
+    }
     const project = $("buyProject").value || state.project;
     const size = $("size").value || "M";
     const buffer = Number($("buffer").value || 0);
@@ -257,6 +408,7 @@
     renderMeta();
     renderProjects();
     renderPatterns();
+    renderKfiExactPatterns();
     renderBuyEstimate();
   }
 
@@ -280,10 +432,14 @@
     renderAll();
 
     $("brandSelect").addEventListener("change", () => {
+      state.kfiExpanded = false;
       populateYarns();
       renderAll();
     });
-    $("yarnSelect").addEventListener("change", renderAll);
+    $("yarnSelect").addEventListener("change", () => {
+      state.kfiExpanded = false;
+      renderAll();
+    });
     $("skeins").addEventListener("input", renderAll);
     $("knit").addEventListener("click", () => setCraft("knit"));
     $("crochet").addEventListener("click", () => setCraft("crochet"));
@@ -294,8 +450,12 @@
     $("buyProject").addEventListener("change", renderBuyEstimate);
     $("size").addEventListener("change", renderBuyEstimate);
     $("buffer").addEventListener("change", renderBuyEstimate);
+    $("toggleKfiPatterns").addEventListener("click", () => {
+      state.kfiExpanded = !state.kfiExpanded;
+      renderKfiExactPatterns();
+    });
   }
 
-  window.YarnFirst = { brands, baseRanges, patternScore };
+  window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn };
   init();
 }());
