@@ -1,0 +1,26 @@
+
+/* Browser layout update */
+.hero.hero-single {
+  grid-template-columns: 1fr;
+}
+
+.chooser-inline {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.chooser-inline .section-title {
+  margin-bottom: 16px;
+}
+
+.pattern-craft {
+  max-width: 420px;
+  margin-top: 14px;
+}
+
+@media (min-width: 761px) {
+  .chooser-inline .row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
