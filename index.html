@@ -31,18 +31,10 @@
               <div><h2 id="chooser-title">Choose your yarn</h2></div>
               <span id="catalogCount" class="count-pill"></span>
             </div>
-
             <div class="row">
-              <div class="field">
-                <label for="brandSelect">Brand</label>
-                <select id="brandSelect"></select>
-              </div>
-              <div class="field">
-                <label for="yarnSelect">Yarn variety</label>
-                <select id="yarnSelect"></select>
-              </div>
+              <div class="field"><label for="brandSelect">Brand</label><select id="brandSelect"></select></div>
+              <div class="field"><label for="yarnSelect">Yarn variety</label><select id="yarnSelect"></select></div>
             </div>
-
             <div id="yarnMeta" class="meta" aria-live="polite"></div>
             <div id="matchBasis" class="match-basis" aria-live="polite"></div>
           </section>
@@ -50,14 +42,11 @@
       </article>
     </section>
 
-    <!-- Compatibility elements retained for the current app logic, but no longer shown as a box. -->
     <div hidden>
       <input id="skeins" type="number" value="1">
       <button id="findProjects" type="button">Show what I can make</button>
       <p id="availableYards"></p>
-      <section id="projectResults">
-        <div id="projectCards"></div>
-      </section>
+      <section id="projectResults"><div id="projectCards"></div></section>
     </div>
 
     <section id="rankedPatternSection" class="section" aria-labelledby="patterns-title">
@@ -65,27 +54,16 @@
         <div><h2 id="patterns-title">Ranked patterns for your yarn</h2></div>
         <p id="allPatternCount"></p>
       </div>
-
       <div class="rank-legend" aria-label="Pattern match ranking scale">
         <strong>Compatibility scale: 100% → 0%</strong>
         <span class="rank rank-high">100% Strongest match</span>
         <span class="rank rank-medium">Scores decrease as gauge and weight differ</span>
         <span class="rank rank-low">0% No confirmed match</span>
       </div>
-
       <div class="library-controls">
-        <div class="field">
-          <label for="patternSearch">Search patterns</label>
-          <input id="patternSearch" type="search" placeholder="Pattern, brand, or yarn name">
-        </div>
-        <div class="field">
-          <label for="patternBrandFilter">Brand</label>
-          <select id="patternBrandFilter">
-            <option value="">All pattern brands</option>
-          </select>
-        </div>
+        <div class="field"><label for="patternSearch">Search patterns</label><input id="patternSearch" type="search" placeholder="Pattern, brand, or yarn name"></div>
+        <div class="field"><label for="patternBrandFilter">Brand</label><select id="patternBrandFilter"><option value="">All pattern brands</option></select></div>
       </div>
-
       <div class="field pattern-craft">
         <label>Craft</label>
         <div class="seg" role="group" aria-label="Choose craft">
@@ -93,7 +71,6 @@
           <button id="crochet" type="button" aria-pressed="false">Crochet</button>
         </div>
       </div>
-
       <p id="allPatternSummary" class="helper" aria-live="polite"></p>
       <div id="allPatternGrid" class="patterns pattern-library-grid" aria-live="polite"></div>
       <button id="showMorePatterns" class="secondary" type="button" hidden></button>
@@ -104,26 +81,12 @@
         <div class="kicker">Work backward</div>
         <h2 id="buy-title">How many skeins should I buy?</h2>
         <div class="row">
-          <div class="field">
-            <label for="buyProject">Project</label>
-            <select id="buyProject"></select>
-          </div>
-          <div class="field">
-            <label for="size">Size</label>
-            <select id="size">
-              <option>XS</option><option>S</option><option selected>M</option><option>L</option><option>XL</option>
-              <option>2X</option><option>3X</option><option>4X</option><option>5X</option>
-            </select>
-          </div>
+          <div class="field"><label for="buyProject">Project</label><select id="buyProject"></select></div>
+          <div class="field"><label for="size">Size</label><select id="size"><option>XS</option><option>S</option><option selected>M</option><option>L</option><option>XL</option><option>2X</option><option>3X</option><option>4X</option><option>5X</option></select></div>
         </div>
         <div class="field">
           <label for="buffer">Extra safety buffer</label>
-          <select id="buffer">
-            <option value="0">None</option>
-            <option value="0.1" selected>10%</option>
-            <option value="0.15">15%</option>
-            <option value="0.2">20%</option>
-          </select>
+          <select id="buffer"><option value="0">None</option><option value="0.1" selected>10%</option><option value="0.15">15%</option><option value="0.2">20%</option></select>
         </div>
       </div>
       <div class="answer">
@@ -137,10 +100,7 @@
       <summary>Browse every yarn currently loaded</summary>
       <div id="catalogList" class="catalog-list"></div>
     </details>
-
-    <footer>
-      Project yardage and tool ranges are estimates. Always swatch and check the final pattern, size, gauge, needle or hook, and dye lot before buying yarn.
-    </footer>
+    <footer>Project yardage and tool ranges are estimates. Always swatch and check the final pattern, size, gauge, needle or hook, and dye lot before buying yarn.</footer>
   </main>
 
   <script src="catalog.js"></script>
@@ -153,7 +113,6 @@
   <script src="knit-picks-catalog.js"></script>
   <script src="kelbourne-family-yarns.js"></script>
   <script src="kelbourne-family-patterns.js"></script>
-  <script src="berroco-family-catalog.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
