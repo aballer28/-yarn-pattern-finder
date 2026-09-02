@@ -147,7 +147,12 @@
       })),
       ...noveltyPatternCatalog.map((pattern) => ({ ...pattern, brands: [pattern.brand], usedYarns: [] })),
       ...externalPatternCatalog,
-      ...knitPicksPatternCatalog
+      ...knitPicksPatternCatalog,
+      ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || []).map((pattern) => ({
+        ...pattern,
+        usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
+        brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
+      }))
     ];
 
     sources.forEach((incoming) => {
@@ -358,6 +363,7 @@
   }
 
   function skeinCount(yardsNeeded, yarn, buffer = 0) {
+    if (!Number.isFinite(yarn?.yards) || yarn.yards <= 0) return null;
     return Math.ceil((yardsNeeded * (1 + buffer)) / yarn.yards);
   }
 
@@ -395,7 +401,13 @@
         <div class="kicker">Selected yarn</div>
         <h3>${escapeHtml(yarn.brand)} · ${escapeHtml(yarn.name)}</h3>
         <div class="selected-yarn-pills">
-          ${[yarn.weight, `${yarn.yards} yd / ${yarn.grams} g`, yarn.fiber].map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}
+          ${[
+            yarn.weight,
+            (Number.isFinite(yarn.yards) && yarn.yards > 0 && Number.isFinite(yarn.grams) && yarn.grams > 0)
+              ? `${yarn.yards} yd / ${yarn.grams} g`
+              : "Skein yardage being verified",
+            yarn.fiber
+          ].filter(Boolean).map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}
         </div>
       </div>
     </div>`;
@@ -408,7 +420,9 @@
       <span><b>${toolName}:</b> ${escapeHtml(recommendedToolLabel(yarn))}</span>`;
 
     const skeins = skeinsOnHand();
-    $("availableYards").textContent = `${skeins} skein${skeins === 1 ? "" : "s"} = about ${formatNumber(skeins * yarn.yards)} yards on hand.`;
+    $("availableYards").textContent = Number.isFinite(yarn.yards) && yarn.yards > 0
+      ? `${skeins} skein${skeins === 1 ? "" : "s"} = about ${formatNumber(skeins * yarn.yards)} yards on hand.`
+      : `${skeins} skein${skeins === 1 ? "" : "s"} selected. Skein yardage is still being verified.`;
   }
 
     function renderProjects() {
@@ -422,6 +436,15 @@
         <div class="skein-estimates">
           <h3>Yarn Skein Estimates</h3>
           <p>Novelty yarns are pattern-specific.</p>
+        </div>`;
+      return;
+    }
+
+    if (!Number.isFinite(yarn.yards) || yarn.yards <= 0) {
+      $("projectCards").innerHTML = `
+        <div class="skein-estimates">
+          <h3>Yarn Skein Estimates</h3>
+          <p>Skein estimates will appear once this yarn's official skein yardage is verified. No placeholder or “Infinity” estimate will be shown.</p>
         </div>`;
       return;
     }
@@ -715,6 +738,12 @@
     const sizeFactor = project === "Sweater" || project === "Baby" ? (sizeFactors[size] || 1) : 1;
     const midpoint = ((range[0] + range[1]) / 2) * sizeFactor * craftMultiplier();
     const skeins = skeinCount(midpoint, yarn, buffer);
+
+    if (skeins === null) {
+      $("buyAnswer").textContent = "Check skein yardage";
+      $("buyDetails").textContent = `About ${formatNumber(midpoint * (1 + buffer))} yards including ${Math.round(buffer * 100)}% extra. This yarn's skein yardage is still being verified.`;
+      return;
+    }
 
     $("buyAnswer").textContent = `${skeins} skein${skeins === 1 ? "" : "s"}`;
     $("buyDetails").textContent = `About ${formatNumber(midpoint * (1 + buffer))} yards including ${Math.round(buffer * 100)}% extra, using ${yarn.name} (${yarn.yards} yd each).`;

@@ -1,5 +1,69 @@
 window.KELBOURNE_FAMILY_PATTERN_CATALOG = [
   {
+    "name": "James Cardigan Pattern",
+    "designer": "Kelbourne Woolens",
+    "craft": "knit",
+    "project": "Sweater",
+    "weight": "Bulky",
+    "sourceBrand": "Kelbourne Woolens",
+    "brands": [
+      "Kelbourne Woolens"
+    ],
+    "usedYarns": [
+      "Kelbourne Woolens|Erin"
+    ],
+    "image": "https://kelbournewoolens.com/cdn/shop/files/JamesCardigan.png?v=1707493315&width=533",
+    "url": "https://kelbournewoolens.com/collections/erin-collection/products/james-pattern"
+  },
+  {
+    "name": "Orla Vest Pattern",
+    "designer": "Kelbourne Woolens",
+    "craft": "knit",
+    "project": "Sweater",
+    "weight": "Bulky",
+    "sourceBrand": "Kelbourne Woolens",
+    "brands": [
+      "Kelbourne Woolens"
+    ],
+    "usedYarns": [
+      "Kelbourne Woolens|Erin"
+    ],
+    "image": "https://kelbournewoolens.com/cdn/shop/files/OrlaVest1.png?v=1706123636&width=533",
+    "url": "https://kelbournewoolens.com/collections/erin-collection/products/orla-vest-pattern"
+  },
+  {
+    "name": "Clare Pullover",
+    "designer": "Kelbourne Woolens",
+    "craft": "knit",
+    "project": "Sweater",
+    "weight": "Bulky",
+    "sourceBrand": "Kelbourne Woolens",
+    "brands": [
+      "Kelbourne Woolens"
+    ],
+    "usedYarns": [
+      "Kelbourne Woolens|Erin"
+    ],
+    "image": "https://kelbournewoolens.com/cdn/shop/files/Clarepullover1_sq.jpg?v=1708110131&width=533",
+    "url": "https://kelbournewoolens.com/collections/erin-collection/products/clare-pullover"
+  },
+  {
+    "name": "Quinn Pattern",
+    "designer": "Kelbourne Woolens",
+    "craft": "knit",
+    "project": "Mittens",
+    "weight": "Bulky",
+    "sourceBrand": "Kelbourne Woolens",
+    "brands": [
+      "Kelbourne Woolens"
+    ],
+    "usedYarns": [
+      "Kelbourne Woolens|Erin"
+    ],
+    "image": "https://kelbournewoolens.com/cdn/shop/files/Quinnset1.jpg?v=1706726648&width=533",
+    "url": "https://kelbournewoolens.com/collections/erin-collection/products/quinn"
+  },
+  {
     "name": "Ballard Hat Pattern",
     "craft": "knit",
     "sourceBrand": "Kelbourne Woolens",
