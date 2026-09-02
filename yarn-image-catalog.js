@@ -75,6 +75,7 @@
     "crochetGauge": null,
     "fiber": "100% merino wool",
     "sourceUrl": "https://www.koigu.com/kpm",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/966bf724-c3af-4f52-90cf-690dcc43af7a/solids%2Blayout.jpg",
     "imageSourceUrl": "https://www.koigu.com/kpm"
   },
   {
@@ -91,6 +92,7 @@
     "crochetGauge": null,
     "fiber": "100% merino wool",
     "sourceUrl": "https://www.koigu.com/kersti",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/c3d55516-2d35-4c79-ac5b-1cff7ad2e532/111%2BKersti.jpg",
     "imageSourceUrl": "https://www.koigu.com/kersti"
   },
   {
@@ -107,6 +109,7 @@
     "crochetGauge": null,
     "fiber": "100% merino wool",
     "sourceUrl": "https://www.koigu.com/jasmine",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/1627331135508-J6C20HOR8L1W9YTSLGBW/J843_1.jpg",
     "imageSourceUrl": "https://www.koigu.com/jasmine"
   },
   {
@@ -123,6 +126,7 @@
     "crochetGauge": null,
     "fiber": "100% merino wool",
     "sourceUrl": "https://www.koigu.com/lace",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/1499184731402-A4GTFK4KNEKN1HB7DHAH/IMG_2808.JPG",
     "imageSourceUrl": "https://www.koigu.com/lace"
   },
   {
@@ -136,6 +140,7 @@
     "crochetGauge": null,
     "fiber": "100% merino wool",
     "sourceUrl": "https://www.koigu.com/othello",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/c423135d-d5c2-40b3-b227-43b4e9aed207/othello.png",
     "imageSourceUrl": "https://www.koigu.com/othello"
   },
   {
@@ -148,6 +153,7 @@
     "crochetGauge": null,
     "fiber": "100% merino wool",
     "sourceUrl": "https://www.koigu.com/chelsea",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/1651000230203-MBBS5ENCUP57LPG2G3W0/C118L.JPG",
     "imageSourceUrl": "https://www.koigu.com/chelsea"
   },
   {
@@ -164,6 +170,7 @@
     "crochetGauge": null,
     "fiber": "100% extrafine merino wool (17 micron)",
     "sourceUrl": "https://www.koigu.com/winnie",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/1761670280015-JBGOXI8DDAHFKURTGRV9/WINNIE%2BW5515.jpeg",
     "imageSourceUrl": "https://www.koigu.com/winnie"
   },
   {
@@ -180,6 +187,7 @@
     "crochetGauge": null,
     "fiber": "70% kid mohair / 30% silk",
     "sourceUrl": "https://www.koigu.com/sofie",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/8edcfe21-d4e5-48dc-a702-e3ad96e78e78/sofie%2Brainbow.jpg",
     "imageSourceUrl": "https://www.koigu.com/sofie"
   },
   {
@@ -193,6 +201,7 @@
     "crochetGauge": null,
     "fiber": "90% extrafine merino / 10% nylon",
     "sourceUrl": "https://www.koigu.com/andra",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/1744146174274-4TTITKV5IO5OQ9YJ542J/andra%2Bbrushed%2Bmohair.jpg",
     "imageSourceUrl": "https://www.koigu.com/andra"
   },
   {
@@ -209,6 +218,7 @@
     "crochetGauge": null,
     "fiber": "75% merino / 25% cashmere",
     "sourceUrl": "https://www.koigu.com/emmi",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/1603392592181-R58S0FXEGVCOCI45FJ43/IMG_7583.jpg",
     "imageSourceUrl": "https://www.koigu.com/emmi"
   },
   {
@@ -221,6 +231,7 @@
     "crochetGauge": null,
     "fiber": "Masham wool",
     "sourceUrl": "https://www.koigu.com/blog/2020/5/15/meet-masham-boucl",
+    "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/1589553270776-10WBHWNVDOV8Y0I91F13/708square.jpg",
     "imageSourceUrl": "https://www.koigu.com/blog/2020/5/15/meet-masham-boucl"
   },
   {
