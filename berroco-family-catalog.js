@@ -77,7 +77,7 @@ window.BERROCO_FAMILY_YARN_CATALOG = [
     needleSize: "US 7–8 / 4.5–5 mm",
     hookSize: "US H–I / 5–5.5 mm",
     fiber: "52% Acrylic, 40% Wool, 8% Nylon",
-    sourceUrl: "https://berro.com/yarns/berroco-vintage-handpaint/",
+    sourceUrl: "https://berroco.com/yarns/berroco-vintage-handpaint/",
     imagePage: "https://berroco.com/yarns/berroco-vintage-handpaint/"
   },
 
