@@ -38,8 +38,27 @@
   function canonicalPatternTitle(name) {
     const normalized = normalizedKey(name);
     const withoutPublicationNumber = normalized.replace(/^\d+\s+(?=\S)/, "");
-    const standardizedCraft = withoutPublicationNumber.replace(/\bcrocheted\b/g, "crochet");
-    return patternTitleAliases.get(standardizedCraft) || standardizedCraft;
+    const standardizedCraft = withoutPublicationNumber
+      .replace(/\bcrocheted\b/g, "crochet")
+      .replace(/\btshirt\b/g, "t shirt")
+      .replace(/\btee shirt\b/g, "t shirt");
+    const withoutGenericSuffix = standardizedCraft
+      .replace(/\s+(?:knit(?:ting)?|crochet)\s+pattern$/g, "")
+      .replace(/\s+pattern$/g, "")
+      .trim();
+    return patternTitleAliases.get(withoutGenericSuffix) || withoutGenericSuffix;
+  }
+
+  function patternHasRavelryLink(pattern) {
+    return /ravelry\.com\/patterns\/library\//i.test(String(pattern.ravelryUrl || pattern.url || ""));
+  }
+
+  function genericPatternTitle(title) {
+    return new Set([
+      "sweater", "cardigan", "pullover", "hat", "scarf", "cowl", "shawl",
+      "socks", "sock", "mittens", "mittens and slippers", "slippers",
+      "vest", "dress", "top", "t shirt", "blanket"
+    ]).has(title);
   }
 
   function canonicalYarnKey(value) {
@@ -77,7 +96,7 @@
     if (kfiMatch) return `kfi:${kfiMatch[1]}`;
     const ravelryMatch = String(pattern.ravelryUrl || pattern.url || "").match(/ravelry\.com\/patterns\/library\/([^/?#]+)/i);
     if (ravelryMatch) return `ravelry:${normalizedKey(ravelryMatch[1])}`;
-    return `pattern:${normalizedKey(pattern.name)}|${normalizedKey(pattern.designer)}|${normalizedKey(pattern.craft)}`;
+    return `pattern:${canonicalPatternTitle(pattern.name)}|${normalizedKey(pattern.designer)}|${normalizedKey(pattern.craft)}`;
   }
 
   function dedupePatterns(items) {
@@ -104,6 +123,8 @@
     });
     return [...merged.values()];
   }
+
+  const strictFamilyBrands = new Set(["Kelbourne Woolens","BC Garn","Navia","Kremke","Hey Mama Wolf"]);
 
   const yarns = dedupeYarns([
     ...(window.YARN_CATALOG || []),
@@ -246,9 +267,21 @@
       const groupKey = `${canonicalPatternTitle(incoming.name)}|${inferredPatternCraft(incoming)}`;
       const group = byTitleAndCraft.get(groupKey) || [];
       const incomingYarns = new Set(incoming.usedYarns || []);
-      const overlapIndex = incomingYarns.size
-        ? group.findIndex((existing) => (existing.usedYarns || []).some((yarnKey) => incomingYarns.has(yarnKey)))
-        : -1;
+      const canonicalTitle = canonicalPatternTitle(incoming.name);
+      const incomingDesigner = normalizedKey(incoming.designer);
+      const overlapIndex = group.findIndex((existing) => {
+        const existingYarns = new Set(existing.usedYarns || []);
+        const yarnOverlap = [...incomingYarns].some((yarnKey) => existingYarns.has(yarnKey));
+        if (yarnOverlap) return true;
+
+        // Official-site and Ravelry copies often differ only by a trailing
+        // “Pattern”, punctuation, or which source supplied the image/link.
+        // Merge those only when the title is specific and the designer agrees.
+        const existingDesigner = normalizedKey(existing.designer);
+        const sameDesigner = incomingDesigner && existingDesigner && incomingDesigner === existingDesigner;
+        const crossSource = patternHasRavelryLink(incoming) || patternHasRavelryLink(existing);
+        return crossSource && sameDesigner && !genericPatternTitle(canonicalTitle);
+      });
       if (overlapIndex === -1) {
         group.push(incoming);
       } else {
@@ -409,6 +442,7 @@
             yarn.fiber
           ].filter(Boolean).map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}
         </div>
+        <div class="selected-yarn-estimates" id="selectedYarnEstimates"></div>
       </div>
     </div>`;
 
@@ -426,13 +460,15 @@
   }
 
     function renderProjects() {
+    if ($("projectCards")) $("projectCards").hidden = true;
     const yarn = currentYarn();
     const ranges = baseRanges[yarn.weight] || baseRanges.Worsted;
     const isNovelty = yarn.weight === "Novelty";
     const multiplier = craftMultiplier();
+    const estimateTarget = $("selectedYarnEstimates") || $("projectCards");
 
     if (isNovelty) {
-      $("projectCards").innerHTML = `
+      estimateTarget.innerHTML = `
         <div class="skein-estimates">
           <h3>Yarn Skein Estimates</h3>
           <p>Novelty yarns are pattern-specific.</p>
@@ -441,7 +477,7 @@
     }
 
     if (!Number.isFinite(yarn.yards) || yarn.yards <= 0) {
-      $("projectCards").innerHTML = `
+      estimateTarget.innerHTML = `
         <div class="skein-estimates">
           <h3>Yarn Skein Estimates</h3>
           <p>Skein estimates will appear once this yarn's official skein yardage is verified. No placeholder or “Infinity” estimate will be shown.</p>
@@ -474,33 +510,21 @@
           <strong>${label}</strong>
           <div class="skein-project-list">
             ${group.projects.map((project) => `
-              <button
-                class="skein-project ${state.project === project ? "selected" : ""}"
-                type="button"
-                data-project="${escapeHtml(project)}">
+              <span class="skein-project">
                 ${escapeHtml(project)}
-              </button>
+              </span>
             `).join("")}
           </div>
         </div>
       `).join("");
 
-    $("projectCards").innerHTML = `
+      estimateTarget.innerHTML = `
       <div class="skein-estimates">
         <h3>Yarn Skein Estimates</h3>
         ${rows}
       </div>`;
 
-    document.querySelectorAll(".skein-project").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.project = button.dataset.project;
-        state.patternVisible = 24;
-        $("buyProject").value = state.project;
-        renderProjects();
-        renderRankedPatternLibrary();
-        renderBuyEstimate();
-      });
-    });
+
   }
   function patternScore(pattern, yarn) {
     const yarnKey = `${yarn.brand}|${yarn.name}`;
@@ -910,6 +934,7 @@
     const brand = $("patternBrandFilter").value;
     const filtered = rankedPatternCatalog
       .filter((pattern) => pattern.craft === state.craft)
+      .filter((pattern) => !strictFamilyBrands.has(yarn.brand) || (pattern.usedYarns || []).includes(canonicalYarnKey(`${yarn.brand}|${yarn.name}`)) || (pattern.brands || []).includes(yarn.brand) || pattern.sourceBrand === yarn.brand)
       .filter((pattern) => !brand || (pattern.brands || []).includes(brand))
       .filter((pattern) => !query || normalizedKey([
           pattern.name,
