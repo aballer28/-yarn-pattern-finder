@@ -171,7 +171,6 @@
       ...knitPicksPatternCatalog,
       ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || []).map((pattern) => ({
         ...pattern,
-      ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || []).map
         usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
         brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
       }))
@@ -1057,4 +1056,3 @@
   window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn, uniqueNoveltyBrandPatterns, allPatternCatalog, rankedPatternCatalog, canonicalPatternTitle, inferredPatternCraft, rankedPatternMatch, gaugeCompatibilityPoints, weightCompatibilityPoints, patternGaugeLabel, patternWeightLabel, recommendedToolLabel };
   init();
 }());
-
