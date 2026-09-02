@@ -1,0 +1,6 @@
+Garn Swatch duplicate audit
+Candidate duplicate yarn records found by static scan: 0
+Candidate duplicate pattern records found by static scan: 0
+Added normalized runtime dedupe guard for yarns and patterns by brand + name (and craft for patterns).
+JavaScript files syntax-checked: 14
+Missing index references: 0

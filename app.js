@@ -131,9 +131,10 @@
     ...(window.KFI_YARN_CATALOG || []),
     ...(window.KNIT_PICKS_YARN_CATALOG || []).filter((yarn) => yarn.yards > 0 && yarn.grams > 0),
     ...(window.YARN_IMAGE_CATALOG || []),
-    ...(window.KELBOURNE_FAMILY_YARN_CATALOG || [])
+    ...(window.KELBOURNE_FAMILY_YARN_CATALOG || []),
+    ...(window.BERROCO_FAMILY_YARN_CATALOG || [])
   ]);
-  const patterns = dedupePatterns([...(window.PATTERN_CATALOG || []), ...(window.KFI_PATTERN_CATALOG || []), ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || [])]);
+  const patterns = dedupePatterns([...(window.PATTERN_CATALOG || []), ...(window.KFI_PATTERN_CATALOG || []), ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || []), ...(window.BERROCO_FAMILY_PATTERN_CATALOG || [])]);
   const kfiPatternIndex = (window.KFI_PATTERN_INDEX || []).map(([id, name, image, url, usedYarns]) => ({
     kfiDesignId: String(id),
     name,
@@ -170,6 +171,11 @@
       ...externalPatternCatalog,
       ...knitPicksPatternCatalog,
       ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || []).map((pattern) => ({
+        ...pattern,
+        usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
+        brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
+      })),
+      ...(window.BERROCO_FAMILY_PATTERN_CATALOG || []).map((pattern) => ({
         ...pattern,
         usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
         brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
@@ -1056,3 +1062,36 @@
   window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn, uniqueNoveltyBrandPatterns, allPatternCatalog, rankedPatternCatalog, canonicalPatternTitle, inferredPatternCraft, rankedPatternMatch, gaugeCompatibilityPoints, weightCompatibilityPoints, patternGaugeLabel, patternWeightLabel, recommendedToolLabel };
   init();
 }());
+
+
+/* normalized final dedupe guard */
+(function () {
+  function norm(v) {
+    return String(v || "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  function dedupe(list, type) {
+    if (!Array.isArray(list)) return list;
+    const seen = new Set();
+    return list.filter((item) => {
+      const brand = norm(item && (item.brand || item.brandName || item.maker));
+      const name = norm(item && (item.name || item.title || item.yarn || item.pattern));
+      const craft = type === "pattern" ? norm(item && item.craft) : "";
+      const key = [brand, name, craft].join("|");
+      if (!name || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  if (Array.isArray(window.YARNS)) window.YARNS = dedupe(window.YARNS, "yarn");
+  if (Array.isArray(window.yarns)) window.yarns = dedupe(window.yarns, "yarn");
+  if (Array.isArray(window.PATTERNS)) window.PATTERNS = dedupe(window.PATTERNS, "pattern");
+  if (Array.isArray(window.patterns)) window.patterns = dedupe(window.patterns, "pattern");
+})();
+

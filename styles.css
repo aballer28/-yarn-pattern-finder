@@ -405,15 +405,3 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; line-height: 1.
     gap: 8px;
   }
 }
-
-
-/* Keep the single Yarn Skein Estimates panel full width. */
-#projectCards {
-  display: block;
-  width: 100%;
-}
-#projectCards .skein-estimates {
-  width: 100%;
-  max-width: none;
-  box-sizing: border-box;
-}
