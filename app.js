@@ -108,7 +108,8 @@
   const yarns = dedupeYarns([
     ...(window.YARN_CATALOG || []),
     ...(window.KFI_YARN_CATALOG || []),
-    ...(window.KNIT_PICKS_YARN_CATALOG || []).filter((yarn) => yarn.yards > 0 && yarn.grams > 0)
+    ...(window.KNIT_PICKS_YARN_CATALOG || []).filter((yarn) => yarn.yards > 0 && yarn.grams > 0),
+    ...(window.YARN_IMAGE_CATALOG || [])
   ]);
   const patterns = dedupePatterns([...(window.PATTERN_CATALOG || []), ...(window.KFI_PATTERN_CATALOG || [])]);
   const kfiPatternIndex = (window.KFI_PATTERN_INDEX || []).map(([id, name, image, url, usedYarns]) => ({
@@ -387,12 +388,23 @@
       ? `${gauge[0]}${gauge[1] !== gauge[0] ? `–${gauge[1]}` : ""} sts / 4 in`
       : "Gauge not published";
 
-    $("yarnMeta").innerHTML = [
-      yarn.weight,
-      `${yarn.yards} yd / ${yarn.grams} g`,
-      yarn.fiber,
-      gaugeText
-    ].map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
+    $("yarnMeta").innerHTML = `<div class="selected-yarn-card">
+      ${yarnMedia(yarn, "selected-yarn-image")}
+      <div class="selected-yarn-copy">
+        <div class="kicker">Selected yarn</div>
+        <h3>${escapeHtml(yarn.brand)} · ${escapeHtml(yarn.name)}</h3>
+        <div class="selected-yarn-pills">
+          ${[yarn.weight, `${yarn.yards} yd / ${yarn.grams} g`, yarn.fiber].map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}
+        </div>
+      </div>
+    </div>`;
+
+    const craftLabel = state.craft === "crochet" ? "Crochet" : "Knitting";
+    const toolName = state.craft === "crochet" ? "Hook" : "Needles";
+    $("matchBasis").innerHTML = `<strong>${craftLabel} match details</strong>
+      <span><b>Yarn weight:</b> ${escapeHtml(yarn.weight)}</span>
+      <span><b>Yarn gauge:</b> ${escapeHtml(gaugeText)}</span>
+      <span><b>${toolName}:</b> ${escapeHtml(recommendedToolLabel(yarn))}</span>`;
 
     const skeins = skeinsOnHand();
     $("availableYards").textContent = `${skeins} skein${skeins === 1 ? "" : "s"} = about ${formatNumber(skeins * yarn.yards)} yards on hand.`;
@@ -456,6 +468,13 @@
     if (!pattern.image) return `<div class="pattern-placeholder" aria-hidden="true">${initial}</div>`;
     return `<img class="pattern-image" src="${escapeHtml(pattern.image)}" alt="${escapeHtml(pattern.name)} pattern" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
       <div class="pattern-placeholder" aria-hidden="true" hidden>${initial}</div>`;
+  }
+
+  function yarnMedia(yarn, className = "yarn-image") {
+    const initial = escapeHtml(yarn.name.charAt(0).toUpperCase());
+    if (!yarn.image) return `<div class="${className} yarn-placeholder" aria-hidden="true">${initial}</div>`;
+    return `<img class="${className}" src="${escapeHtml(yarn.image)}" alt="${escapeHtml(`${yarn.brand} ${yarn.name} yarn`)}" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+      <div class="${className} yarn-placeholder" aria-hidden="true" hidden>${initial}</div>`;
   }
 
   function ravelrySearchUrl(yarn) {
@@ -678,9 +697,12 @@
       const items = yarns
         .filter((yarn) => yarn.brand === brand)
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((yarn) => `<li><a href="${escapeHtml(yarn.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(yarn.name)}</a> · ${escapeHtml(yarn.weight)}</li>`)
+        .map((yarn) => `<li class="yarn-catalog-card">
+          ${yarnMedia(yarn, "yarn-catalog-image")}
+          <div><a href="${escapeHtml(yarn.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(yarn.name)}</a><span>${escapeHtml(yarn.weight)}</span></div>
+        </li>`)
         .join("");
-      return `<section class="catalog-group"><h3>${escapeHtml(brand)}</h3><ul>${items}</ul></section>`;
+      return `<section class="catalog-group"><h3>${escapeHtml(brand)}</h3><ul class="yarn-catalog-grid">${items}</ul></section>`;
     }).join("");
   }
 
@@ -951,3 +973,4 @@
   window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn, uniqueNoveltyBrandPatterns, allPatternCatalog, rankedPatternCatalog, canonicalPatternTitle, inferredPatternCraft, rankedPatternMatch, gaugeCompatibilityPoints, weightCompatibilityPoints, patternGaugeLabel, patternWeightLabel, recommendedToolLabel };
   init();
 }());
+

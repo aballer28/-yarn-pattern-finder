@@ -30,7 +30,6 @@
       <section class="panel chooser" aria-labelledby="chooser-title">
         <div class="section-title">
           <div>
-            <div class="kicker">Step 1</div>
             <h2 id="chooser-title">Choose your yarn</h2>
           </div>
           <span id="catalogCount" class="count-pill"></span>
@@ -70,18 +69,17 @@
     <section id="projectResults" class="section" aria-labelledby="projects-title">
       <div class="section-head">
         <div>
-          <div class="kicker">Step 2</div>
           <h2 id="projects-title">What you can make</h2>
         </div>
         <p>Select a project to update the pattern matches.</p>
       </div>
+      <div id="matchBasis" class="match-basis" aria-live="polite"></div>
       <div id="projectCards" class="cards" aria-live="polite"></div>
     </section>
 
     <section id="rankedPatternSection" class="section" aria-labelledby="patterns-title">
       <div class="section-head">
         <div>
-          <div class="kicker">Step 3</div>
           <h2 id="patterns-title">Ranked patterns for your yarn</h2>
         </div>
         <p id="allPatternCount"></p>
@@ -156,6 +154,7 @@
   <script src="catalog.js"></script>
   <script src="kfi-catalog.js"></script>
   <script src="knit-picks-yarns.js"></script>
+  <script src="yarn-image-catalog.js"></script>
   <script src="kfi-pattern-index.js"></script>
   <script src="novelty-pattern-catalog.js"></script>
   <script src="external-pattern-catalog.js"></script>
@@ -163,3 +162,4 @@
   <script src="app.js"></script>
 </body>
 </html>
+
