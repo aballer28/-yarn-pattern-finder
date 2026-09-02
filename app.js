@@ -410,35 +410,64 @@
     $("availableYards").textContent = `${skeins} skein${skeins === 1 ? "" : "s"} = about ${formatNumber(skeins * yarn.yards)} yards on hand.`;
   }
 
-  function renderProjects() {
+    function renderProjects() {
     const yarn = currentYarn();
     const ranges = baseRanges[yarn.weight] || baseRanges.Worsted;
     const isNovelty = yarn.weight === "Novelty";
-    const onHand = skeinsOnHand() * yarn.yards;
     const multiplier = craftMultiplier();
 
-    $("projectCards").innerHTML = Object.entries(ranges).map(([project, range]) => {
+    if (isNovelty) {
+      $("projectCards").innerHTML = `
+        <div class="skein-estimates">
+          <h3>Yarn Skein Estimates</h3>
+          <p>Novelty yarns are pattern-specific.</p>
+        </div>`;
+      return;
+    }
+
+    const groups = new Map();
+
+    Object.entries(ranges).forEach(([project, range]) => {
       const minYards = Math.round(range[0] * multiplier);
       const maxYards = Math.round(range[1] * multiplier);
       const minSkeins = Math.ceil(minYards / yarn.yards);
       const maxSkeins = Math.ceil(maxYards / yarn.yards);
-      const possible = onHand >= minYards;
-      const shortage = Math.max(1, minSkeins - skeinsOnHand());
-      const status = isNovelty
-        ? `<span class="maybe">Use a pattern written for this yarn</span>`
-        : possible
-        ? `<span class="good">${onHand >= maxYards ? "Enough for most versions" : "Possible for some sizes/styles"}</span>`
-        : `<span class="maybe">About ${shortage} more skein${shortage === 1 ? "" : "s"} needed</span>`;
+      const label = minSkeins === maxSkeins
+        ? `${minSkeins} skein${minSkeins === 1 ? "" : "s"}`
+        : `${minSkeins}–${maxSkeins} skeins`;
 
-      return `<button class="project ${state.project === project ? "selected" : ""}" type="button" data-project="${escapeHtml(project)}" aria-pressed="${state.project === project}">
-        <div class="icon" aria-hidden="true">${projectIcons[project] || "•"}</div>
-        <h3>${escapeHtml(project)}</h3>
-        <div class="big">${isNovelty ? "Pattern-specific" : `${minSkeins}–${maxSkeins} skeins`}</div>
-        <div class="sub">${isNovelty ? "Novelty yarns do not share a standard yardage range." : `About ${formatNumber(minYards)}–${formatNumber(maxYards)} yards`}<br>${status}</div>
-      </button>`;
-    }).join("");
+      if (!groups.has(label)) {
+        groups.set(label, { minSkeins, maxSkeins, projects: [] });
+      }
 
-    document.querySelectorAll(".project").forEach((button) => {
+      groups.get(label).projects.push(project);
+    });
+
+    const rows = [...groups.entries()]
+      .sort((a, b) => a[1].minSkeins - b[1].minSkeins || a[1].maxSkeins - b[1].maxSkeins)
+      .map(([label, group]) => `
+        <div class="skein-estimate-row">
+          <strong>${label}</strong>
+          <div class="skein-project-list">
+            ${group.projects.map((project) => `
+              <button
+                class="skein-project ${state.project === project ? "selected" : ""}"
+                type="button"
+                data-project="${escapeHtml(project)}">
+                ${escapeHtml(project)}
+              </button>
+            `).join("")}
+          </div>
+        </div>
+      `).join("");
+
+    $("projectCards").innerHTML = `
+      <div class="skein-estimates">
+        <h3>Yarn Skein Estimates</h3>
+        ${rows}
+      </div>`;
+
+    document.querySelectorAll(".skein-project").forEach((button) => {
       button.addEventListener("click", () => {
         state.project = button.dataset.project;
         state.patternVisible = 24;
@@ -449,7 +478,6 @@
       });
     });
   }
-
   function patternScore(pattern, yarn) {
     const yarnKey = `${yarn.brand}|${yarn.name}`;
     const exact = Array.isArray(pattern.usedYarns) && pattern.usedYarns.includes(yarnKey);
