@@ -131,7 +131,8 @@
     ...(window.KFI_YARN_CATALOG || []),
     ...(window.KNIT_PICKS_YARN_CATALOG || []).filter((yarn) => yarn.yards > 0 && yarn.grams > 0),
     ...(window.YARN_IMAGE_CATALOG || []),
-    ...(window.KELBOURNE_FAMILY_YARN_CATALOG || [])
+    ...(window.KELBOURNE_FAMILY_YARN_CATALOG || []),
+    ...(window.BERROCO_FAMILY_YARN_CATALOG || [])
   ]);
   const patterns = dedupePatterns([...(window.PATTERN_CATALOG || []), ...(window.KFI_PATTERN_CATALOG || []), ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || [])]);
   const kfiPatternIndex = (window.KFI_PATTERN_INDEX || []).map(([id, name, image, url, usedYarns]) => ({
@@ -171,6 +172,7 @@
       ...knitPicksPatternCatalog,
       ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || []).map((pattern) => ({
         ...pattern,
+      ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || []).map
         usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
         brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
       }))
