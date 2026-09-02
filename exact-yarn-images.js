@@ -1,89 +1,81 @@
-// Garn Swatch — exact per-yarn image resolver
-// Uses each yarn's own product/source page. Rejects reused generic images.
+// Garn Swatch — exact image loader for ALL yarn and pattern catalogs.
+// Existing verified direct images are preserved.
+// Missing images use the Vercel /api/yarn-image resolver against the item's OWN page.
+
 (function () {
   "use strict";
 
-  const CACHE_KEY = "garnSwatchExactYarnImagesV2";
-  let cache = {};
-  try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || "{}"); } catch (_) {}
+  function validImage(value) {
+    const v = String(value || "");
+    return /^https?:\/\//i.test(v) &&
+      !/api\.microlink\.io/i.test(v);
+  }
 
-  const keyOf = y => `${String(y.brand||"").trim()}|${String(y.name||"").trim()}`;
-  const pageOf = y => y.productUrl || y.sourceUrl || y.imagePage || y.url || "";
-  const valid = u => /^https?:\/\//i.test(String(u || ""));
+  function validPage(value) {
+    return /^https?:\/\//i.test(String(value || ""));
+  }
 
-  // Existing exact image data remains authoritative.
-  function seed(arr) {
-    if (!Array.isArray(arr)) return;
-    arr.forEach(y => {
-      if (y && valid(y.image) && !/api\.microlink\.io/i.test(y.image)) {
-        cache[keyOf(y)] = y.image;
-      }
+  function pageFor(item) {
+    return (
+      item.productUrl ||
+      item.imagePage ||
+      item.sourceUrl ||
+      item.url ||
+      item.patternUrl ||
+      item.ravelryUrl ||
+      ""
+    );
+  }
+
+  function setExactImage(item, kind) {
+    if (!item || typeof item !== "object") return;
+
+    // Keep already verified/direct pictures.
+    if (validImage(item.image)) return;
+
+    // Remove the previous generic Microlink fallback.
+    if (/api\.microlink\.io/i.test(String(item.image || ""))) {
+      delete item.image;
+    }
+
+    const page = pageFor(item);
+    const name = item.name || item.displayName || item.title || "";
+
+    if (!validPage(page) || !name) return;
+
+    item.image =
+      "/api/yarn-image?url=" +
+      encodeURIComponent(page) +
+      "&name=" +
+      encodeURIComponent(name) +
+      "&kind=" +
+      encodeURIComponent(kind);
+  }
+
+  Object.keys(window).forEach(function (key) {
+    const value = window[key];
+    if (!Array.isArray(value)) return;
+
+    const isYarn = /YARN/i.test(key);
+    const isPattern = /PATTERN/i.test(key);
+
+    if (!isYarn && !isPattern) return;
+
+    value.forEach(function (item) {
+      setExactImage(item, isPattern ? "pattern" : "yarn");
+    });
+  });
+
+  // Main integrated catalogs are the ones app.js consumes.
+  if (Array.isArray(window.YARN_CATALOG)) {
+    window.YARN_CATALOG.forEach(function (item) {
+      setExactImage(item, "yarn");
     });
   }
 
-  Object.keys(window).forEach(k => {
-    if (Array.isArray(window[k]) && /YARN/i.test(k)) seed(window[k]);
-  });
-
-  function applyCached(arr) {
-    if (!Array.isArray(arr)) return;
-    arr.forEach(y => {
-      if (!y) return;
-      const hit = cache[keyOf(y)];
-      if (valid(hit)) y.image = hit;
-      else if (/api\.microlink\.io/i.test(String(y.image||""))) delete y.image;
+  if (Array.isArray(window.PATTERN_CATALOG)) {
+    window.PATTERN_CATALOG.forEach(function (item) {
+      setExactImage(item, "pattern");
     });
   }
-
-  Object.keys(window).forEach(k => {
-    if (Array.isArray(window[k]) && /YARN/i.test(k)) applyCached(window[k]);
-  });
-
-  localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-
-  // Resolve missing images from each yarn's OWN page.
-  // Microlink is used only as metadata extraction; we reject any image that is
-  // returned for multiple different yarns, preventing the old generic-image bug.
-  const yarns = Array.isArray(window.YARN_CATALOG) ? window.YARN_CATALOG : [];
-  const missing = yarns.filter(y => !valid(y.image) && valid(pageOf(y)));
-  const seenImageToKey = new Map();
-  let changed = false;
-
-  async function resolveOne(y) {
-    const page = pageOf(y);
-    const k = keyOf(y);
-    try {
-      const endpoint = "https://api.microlink.io/?url=" + encodeURIComponent(page) + "&meta=true";
-      const r = await fetch(endpoint);
-      if (!r.ok) return;
-      const j = await r.json();
-      const img = j && j.data && j.data.image && j.data.image.url;
-      if (!valid(img)) return;
-
-      const other = seenImageToKey.get(img);
-      if (other && other !== k) return; // reject generic/reused image
-      seenImageToKey.set(img, k);
-
-      cache[k] = img;
-      y.image = img;
-      changed = true;
-    } catch (_) {}
-  }
-
-  async function run() {
-    // modest concurrency to avoid hammering product sites / metadata service
-    for (let i = 0; i < missing.length; i += 6) {
-      await Promise.all(missing.slice(i, i + 6).map(resolveOne));
-    }
-    if (changed) {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-      // Refresh once so app.js renders the newly cached exact images.
-      if (!sessionStorage.getItem("garnSwatchImagesRefreshed")) {
-        sessionStorage.setItem("garnSwatchImagesRefreshed", "1");
-        location.reload();
-      }
-    }
-  }
-
-  run();
 })();
