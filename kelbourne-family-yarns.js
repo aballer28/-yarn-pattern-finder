@@ -237,7 +237,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Bulky",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/bc-garn"
+    "sourceUrl": "https://kelbournewoolens.com/collections/sweater-weather"
   },
   {
     "brand": "BC Garn",
@@ -357,7 +357,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Fingering",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/bc-garn"
+    "sourceUrl": "https://kelbournewoolens.com/collections/sweater-weather"
   },
   {
     "brand": "Navia",
@@ -373,7 +373,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Bulky",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/navia"
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
   },
   {
     "brand": "Navia",
@@ -397,7 +397,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "DK",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/navia"
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
   },
   {
     "brand": "Navia",
@@ -437,7 +437,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Aran",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/kremke"
+    "sourceUrl": "https://kelbournewoolens.com/collections/sweater-weather"
   },
   {
     "brand": "Kremke",
@@ -445,7 +445,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Aran",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/kremke"
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
   },
   {
     "brand": "Kremke",
@@ -485,7 +485,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Lace",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/kremke"
+    "sourceUrl": "https://kelbournewoolens.com/collections/sweater-weather"
   },
   {
     "brand": "Kremke",
@@ -493,7 +493,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Bulky",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/kremke"
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
   },
   {
     "brand": "Kremke",
@@ -501,7 +501,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Aran",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/kremke"
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
   },
   {
     "brand": "Kremke",
@@ -509,7 +509,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "DK",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/kremke"
+    "sourceUrl": "https://kelbournewoolens.com/collections/sweater-weather"
   },
   {
     "brand": "Hey Mama Wolf",
@@ -525,7 +525,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "DK",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/hey-mama-wolf"
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
   },
   {
     "brand": "Hey Mama Wolf",
@@ -533,7 +533,7 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "weight": "Sport",
     "yards": 0,
     "grams": 0,
-    "sourceUrl": "https://kelbournewoolens.com/collections/hey-mama-wolf"
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
   },
   {
     "brand": "Hey Mama Wolf",
@@ -542,5 +542,17 @@ window.KELBOURNE_FAMILY_YARN_CATALOG = [
     "yards": 0,
     "grams": 0,
     "sourceUrl": "https://kelbournewoolens.com/collections/hey-mama-wolf"
+  },
+  {
+    "brand": "BC Garn",
+    "name": "Hamelton Tweed 1 GOTS",
+    "weight": "Worsted",
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
+  },
+  {
+    "brand": "Navia",
+    "name": "Fipa",
+    "weight": "Bulky",
+    "sourceUrl": "https://kelbournewoolens.com/collections/wool-yarns"
   }
 ];
