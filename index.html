@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Choose a yarn, enter the skeins you have, and find realistic knitting and crochet projects with matching patterns.">
+  <meta name="description" content="Choose a yarn and find realistic knitting and crochet projects with matching patterns.">
   <title>Garn Swatch — Yarn & Pattern Finder</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="layout-update.css">
 </head>
 <body>
   <main class="wrap">
@@ -17,79 +18,61 @@
       <div class="kicker">Knitting + crochet</div>
     </header>
 
-    <section class="hero">
+    <section class="hero hero-single">
       <article class="hero-card">
         <img class="hero-art" src="hero.jpg" alt="Sheep, alpaca, yak, llama and angora rabbit tangled in yarn">
         <div class="hero-copy">
           <div class="kicker">Start with the yarn you already have</div>
           <h1>What can I make?</h1>
-          <p>Choose a brand and yarn, enter how many skeins you have, then see realistic projects and matching patterns.</p>
+          <p>Choose a brand and yarn to see its details, skein estimates, and matching patterns.</p>
+
+          <section class="chooser chooser-inline" aria-labelledby="chooser-title">
+            <div class="section-title">
+              <div><h2 id="chooser-title">Choose your yarn</h2></div>
+              <span id="catalogCount" class="count-pill"></span>
+            </div>
+
+            <div class="row">
+              <div class="field">
+                <label for="brandSelect">Brand</label>
+                <select id="brandSelect"></select>
+              </div>
+              <div class="field">
+                <label for="yarnSelect">Yarn variety</label>
+                <select id="yarnSelect"></select>
+              </div>
+            </div>
+
+            <div id="yarnMeta" class="meta" aria-live="polite"></div>
+            <div id="matchBasis" class="match-basis" aria-live="polite"></div>
+          </section>
         </div>
       </article>
+    </section>
 
-      <section class="panel chooser" aria-labelledby="chooser-title">
-        <div class="section-title">
-          <div>
-            <h2 id="chooser-title">Choose your yarn</h2>
-          </div>
-          <span id="catalogCount" class="count-pill"></span>
-        </div>
-
-        <div class="field">
-          <label for="brandSelect">Brand</label>
-          <select id="brandSelect"></select>
-        </div>
-
-        <div class="field">
-          <label for="yarnSelect">Yarn variety</label>
-          <select id="yarnSelect"></select>
-        </div>
-
-        <div id="yarnMeta" class="meta" aria-live="polite"></div>
-
-        <div class="row">
-          <div class="field">
-            <label for="skeins">Skeins on hand</label>
-            <input id="skeins" type="number" min="1" max="99" step="1" value="2" inputmode="numeric">
-          </div>
-          <div class="field">
-            <label>Craft</label>
-            <div class="seg" role="group" aria-label="Choose craft">
-              <button id="knit" class="active" type="button" aria-pressed="true">Knitting</button>
-              <button id="crochet" type="button" aria-pressed="false">Crochet</button>
-            </div>
-          </div>
-        </div>
-
-        <button id="findProjects" class="primary" type="button">Show what I can make</button>
-        <p id="availableYards" class="helper" aria-live="polite"></p>
+    <!-- Compatibility elements retained for the current app logic, but no longer shown as a box. -->
+    <div hidden>
+      <input id="skeins" type="number" value="1">
+      <button id="findProjects" type="button">Show what I can make</button>
+      <p id="availableYards"></p>
+      <section id="projectResults">
+        <div id="projectCards"></div>
       </section>
-    </section>
-
-    <section id="projectResults" class="section" aria-labelledby="projects-title">
-      <div class="section-head">
-        <div>
-          <h2 id="projects-title">What you can make</h2>
-        </div>
-        <p>Select a project to update the pattern matches.</p>
-      </div>
-      <div id="matchBasis" class="match-basis" aria-live="polite"></div>
-      <div id="projectCards" class="cards" aria-live="polite"></div>
-    </section>
+    </div>
 
     <section id="rankedPatternSection" class="section" aria-labelledby="patterns-title">
       <div class="section-head">
-        <div>
-          <h2 id="patterns-title">Ranked patterns for your yarn</h2>
-        </div>
+        <div><h2 id="patterns-title">Ranked patterns for your yarn</h2></div>
         <p id="allPatternCount"></p>
       </div>
+
       <div class="rank-legend" aria-label="Pattern match ranking scale">
         <strong>Compatibility scale: 100% → 0%</strong>
         <span class="rank rank-high">100% Strongest match</span>
         <span class="rank rank-medium">Scores decrease as gauge and weight differ</span>
         <span class="rank rank-low">0% No confirmed match</span>
       </div>
+
       <div class="library-controls">
         <div class="field">
           <label for="patternSearch">Search patterns</label>
@@ -102,6 +85,15 @@
           </select>
         </div>
       </div>
+
+      <div class="field pattern-craft">
+        <label>Craft</label>
+        <div class="seg" role="group" aria-label="Choose craft">
+          <button id="knit" class="active" type="button" aria-pressed="true">Knitting</button>
+          <button id="crochet" type="button" aria-pressed="false">Crochet</button>
+        </div>
+      </div>
+
       <p id="allPatternSummary" class="helper" aria-live="polite"></p>
       <div id="allPatternGrid" class="patterns pattern-library-grid" aria-live="polite"></div>
       <button id="showMorePatterns" class="secondary" type="button" hidden></button>
@@ -164,4 +156,3 @@
   <script src="app.js"></script>
 </body>
 </html>
-
