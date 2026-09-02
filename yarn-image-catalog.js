@@ -47,8 +47,181 @@
   {
     "brand": "Koigu",
     "name": "KPPPM",
+    "weight": "Fingering",
+    "yards": 170,
+    "grams": 50,
+    "knitGauge": [
+      28,
+      28
+    ],
+    "needleSize": "US 3 (3.0 mm)",
+    "crochetGauge": null,
+    "fiber": "100% merino wool",
     "image": "https://images.squarespace-cdn.com/content/v1/591601eec534a5b1eeec38d2/1733790214441-OW9A6HGKTA4X53MWZ1XX/kpppm+michigan.jpg",
-    "imageSourceUrl": "https://www.koigu.com/kpppm/"
+    "imageSourceUrl": "https://www.koigu.com/kpppm/",
+    "sourceUrl": "https://www.koigu.com/kpppm/"
+  },
+  {
+    "brand": "Koigu",
+    "name": "KPM",
+    "weight": "Fingering",
+    "yards": 170,
+    "grams": 50,
+    "knitGauge": [
+      28,
+      28
+    ],
+    "needleSize": "US 3 (3.0 mm)",
+    "crochetGauge": null,
+    "fiber": "100% merino wool",
+    "sourceUrl": "https://www.koigu.com/kpm",
+    "imageSourceUrl": "https://www.koigu.com/kpm"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Kersti",
+    "weight": "DK",
+    "yards": 114,
+    "grams": 50,
+    "knitGauge": [
+      20,
+      20
+    ],
+    "needleSize": "US 6 (4.0 mm)",
+    "crochetGauge": null,
+    "fiber": "100% merino wool",
+    "sourceUrl": "https://www.koigu.com/kersti",
+    "imageSourceUrl": "https://www.koigu.com/kersti"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Jasmine",
+    "weight": "DK",
+    "yards": 242,
+    "grams": 100,
+    "knitGauge": [
+      22,
+      22
+    ],
+    "needleSize": "US 6–7 (3.5–4.0 mm)",
+    "crochetGauge": null,
+    "fiber": "100% merino wool",
+    "sourceUrl": "https://www.koigu.com/jasmine",
+    "imageSourceUrl": "https://www.koigu.com/jasmine"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Lace",
+    "weight": "Lace",
+    "yards": 292,
+    "grams": 50,
+    "knitGauge": [
+      32,
+      46
+    ],
+    "needleSize": "US 0–1 (2.0–2.25 mm)",
+    "crochetGauge": null,
+    "fiber": "100% merino wool",
+    "sourceUrl": "https://www.koigu.com/lace",
+    "imageSourceUrl": "https://www.koigu.com/lace"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Othello",
+    "weight": "Bulky",
+    "yards": 95,
+    "grams": 100,
+    "knitGauge": null,
+    "needleSize": "8 mm",
+    "crochetGauge": null,
+    "fiber": "100% merino wool",
+    "sourceUrl": "https://www.koigu.com/othello",
+    "imageSourceUrl": "https://www.koigu.com/othello"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Chelsea",
+    "weight": "Aran",
+    "yards": 125,
+    "grams": 100,
+    "knitGauge": null,
+    "crochetGauge": null,
+    "fiber": "100% merino wool",
+    "sourceUrl": "https://www.koigu.com/chelsea",
+    "imageSourceUrl": "https://www.koigu.com/chelsea"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Winnie",
+    "weight": "Sport",
+    "yards": 300,
+    "grams": 100,
+    "knitGauge": [
+      23,
+      26
+    ],
+    "needleSize": "US 3–5 (3.25–3.75 mm)",
+    "crochetGauge": null,
+    "fiber": "100% extrafine merino wool (17 micron)",
+    "sourceUrl": "https://www.koigu.com/winnie",
+    "imageSourceUrl": "https://www.koigu.com/winnie"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Sofie",
+    "weight": "Lace",
+    "yards": 238,
+    "grams": 25,
+    "knitGauge": [
+      18,
+      25
+    ],
+    "needleSize": "US 3–8 (3.25–5 mm)",
+    "crochetGauge": null,
+    "fiber": "70% kid mohair / 30% silk",
+    "sourceUrl": "https://www.koigu.com/sofie",
+    "imageSourceUrl": "https://www.koigu.com/sofie"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Andra",
+    "weight": "DK",
+    "yards": 328,
+    "grams": 100,
+    "knitGauge": null,
+    "needleSize": "US 7–9 (4.5–5.5 mm)",
+    "crochetGauge": null,
+    "fiber": "90% extrafine merino / 10% nylon",
+    "sourceUrl": "https://www.koigu.com/andra",
+    "imageSourceUrl": "https://www.koigu.com/andra"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Emmi",
+    "weight": "DK",
+    "yards": 130,
+    "grams": 50,
+    "knitGauge": [
+      22,
+      22
+    ],
+    "needleSize": "US 6–7 (3.5–4.5 mm)",
+    "crochetGauge": null,
+    "fiber": "75% merino / 25% cashmere",
+    "sourceUrl": "https://www.koigu.com/emmi",
+    "imageSourceUrl": "https://www.koigu.com/emmi"
+  },
+  {
+    "brand": "Koigu",
+    "name": "Masham Bouclé",
+    "weight": "Bulky",
+    "yards": 100,
+    "grams": 150,
+    "knitGauge": null,
+    "crochetGauge": null,
+    "fiber": "Masham wool",
+    "sourceUrl": "https://www.koigu.com/blog/2020/5/15/meet-masham-boucl",
+    "imageSourceUrl": "https://www.koigu.com/blog/2020/5/15/meet-masham-boucl"
   },
   {
     "brand": "Lion Brand",
@@ -196,4 +369,3 @@
   }
 ];
 }());
-
