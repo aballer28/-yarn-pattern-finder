@@ -348,3 +348,60 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; line-height: 1.
   .selected-yarn-image, .yarn-placeholder.selected-yarn-image { width: 76px; height: 76px; }
 }
 
+/* Yarn Skein Estimates */
+.skein-estimates {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 24px;
+}
+
+.skein-estimates h3 {
+  margin: 0 0 18px;
+  font-size: 24px;
+  color: var(--navy);
+}
+
+.skein-estimate-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.skein-estimate-row strong {
+  font-size: 18px;
+  color: var(--navy);
+}
+
+.skein-project-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skein-project {
+  border: 0;
+  background: var(--soft);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 13px;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.skein-project:hover,
+.skein-project.selected {
+  background: var(--navy);
+  color: white;
+}
+
+@media (max-width: 760px) {
+  .skein-estimate-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
