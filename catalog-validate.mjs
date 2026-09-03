@@ -11,10 +11,29 @@ for (const file of scripts) {
   try { await fs.access(file); } catch { missingScripts.push(file); }
 }
 
+// catalog-audit-repair.js is intentionally disabled in the live page because it
+// is too expensive to run in a browser with the full catalog. The validator,
+// however, relies on its normalized audit identities/current-yarn data. Load it
+// only inside this headless VM, immediately after catalog-integration.js, so CI
+// validates the repaired catalog model without re-enabling the browser freeze.
+const auditRepair = "catalog-audit-repair.js";
+let auditRepairAvailable = false;
+try {
+  await fs.access(auditRepair);
+  auditRepairAvailable = true;
+} catch {}
+
+const scriptsForAudit = scripts.slice();
+if (auditRepairAvailable && !scriptsForAudit.includes(auditRepair)) {
+  const integrationIndex = scriptsForAudit.indexOf("catalog-integration.js");
+  const insertAt = integrationIndex >= 0 ? integrationIndex + 1 : scriptsForAudit.length;
+  scriptsForAudit.splice(insertAt, 0, auditRepair);
+}
+
 const sandbox = { window: { addEventListener() {} }, console, URL, URLSearchParams, setTimeout, clearTimeout };
 vm.createContext(sandbox);
 const loadErrors = [];
-for (const file of scripts) {
+for (const file of scriptsForAudit) {
   try {
     const code = await fs.readFile(file, "utf8");
     vm.runInContext(code, sandbox, { filename: file, timeout: 60000 });
@@ -262,12 +281,14 @@ const report={
   regression
 };
 await fs.writeFile("catalog-audit-report.json",JSON.stringify(report,null,2)+"\n");
+const failedRegression = regression.filter(x=>!x.pass);
 console.log(JSON.stringify({
   yarns:report.yarns.count,patterns:report.patterns.count,
   orphanRefs:orphanRefs.length,duplicateIdentities:report.yarns.duplicateIdentities.length,
   zeroExact:report.zeroExactPatternYarns.length,collectionRisks:genericPatternUrls.length,
   invalidCraft:invalidCraft.length,heldTogetherProblems:heldTogetherProblems.length,
-  loadErrors:loadErrors.length,regressionFailures:regression.filter(x=>!x.pass).length
+  loadErrors:loadErrors.length,regressionFailures:failedRegression.length,
+  failedRegression:failedRegression.map(({name,details})=>({name,details}))
 },null,2));
 
-if (missingScripts.length || loadErrors.length || invalidRenderedValues.length || regression.some(x=>!x.pass)) process.exitCode=2;
+if (missingScripts.length || loadErrors.length || invalidRenderedValues.length || failedRegression.length) process.exitCode=2;
