@@ -83,7 +83,9 @@
         image: existing.image || incoming.image,
         knitGauge: existing.knitGauge || incoming.knitGauge,
         crochetGauge: existing.crochetGauge || incoming.crochetGauge,
-        sourceUrl: existing.sourceUrl || incoming.sourceUrl
+        sourceUrl: existing.sourceUrl || incoming.sourceUrl,
+        discontinued: Boolean(existing.discontinued || incoming.discontinued),
+        status: existing.status || incoming.status
       });
     });
     return [...merged.values()];
@@ -132,7 +134,8 @@
     ...(window.KNIT_PICKS_YARN_CATALOG || []).filter((yarn) => yarn.yards > 0 && yarn.grams > 0),
     ...(window.YARN_IMAGE_CATALOG || []),
     ...(window.KELBOURNE_FAMILY_YARN_CATALOG || []),
-    ...(window.BERROCO_FAMILY_YARN_CATALOG || [])
+    ...(window.BERROCO_FAMILY_YARN_CATALOG || []),
+    ...(window.AUTO_YARN_CATALOG || [])
   ]);
   const patterns = dedupePatterns([...(window.PATTERN_CATALOG || []), ...(window.KFI_PATTERN_CATALOG || []), ...(window.KELBOURNE_FAMILY_PATTERN_CATALOG || []), ...(window.BERROCO_FAMILY_PATTERN_CATALOG || [])]);
   const kfiPatternIndex = (window.KFI_PATTERN_INDEX || []).map(([id, name, image, url, usedYarns]) => ({
@@ -176,6 +179,11 @@
         brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
       })),
       ...(window.BERROCO_FAMILY_PATTERN_CATALOG || []).map((pattern) => ({
+        ...pattern,
+        usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
+        brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
+      })),
+      ...(window.AUTO_PATTERN_CATALOG || []).map((pattern) => ({
         ...pattern,
         usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
         brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
@@ -352,7 +360,7 @@
   };
 
   const sizeFactors = { XS: 0.78, S: 0.88, M: 1, L: 1.12, XL: 1.24, "2X": 1.38, "3X": 1.52, "4X": 1.68, "5X": 1.84 };
-  const state = { craft: "knit", project: "Hat", patternVisible: 24 };
+  const state = { craft: "knit", project: "Hat", patternVisible: 24, patternSort: "az" };
   const toolRecommendations = {
     Lace: { knit: "US 000–1 (1.5–2.25 mm)", crochet: "Steel 6–8 or B-1 (1.4–2.25 mm)" },
     "LACE / SUPER FINE": { knit: "US 000–3 (1.5–3.25 mm)", crochet: "Steel 6–8 to E-4 (1.4–3.5 mm)" },
@@ -460,6 +468,7 @@
         <h3>${escapeHtml(yarn.brand)} · ${escapeHtml(yarn.name)}</h3>
         <div class="selected-yarn-pills">
           ${[
+            yarn.discontinued ? "Discontinued" : null,
             yarn.weight,
             (Number.isFinite(yarn.yards) && yarn.yards > 0 && Number.isFinite(yarn.grams) && yarn.grams > 0)
               ? `${yarn.yards} yd / ${yarn.grams} g`
@@ -951,6 +960,61 @@
     return { score, reason, gaugeMatch, weightMatch, gaugePoints, weightPoints, projectMatch: pattern.inferredProject === state.project };
   }
 
+  const patternCatalogOrder = new Map(
+    rankedPatternCatalog.map((pattern, index) => [patternIdentity(pattern), index])
+  );
+
+  function patternRecencyValue(pattern) {
+    const dateCandidates = [
+      pattern.publishedAt,
+      pattern.published,
+      pattern.releaseDate,
+      pattern.date,
+      pattern.createdAt
+    ].filter(Boolean);
+
+    for (const value of dateCandidates) {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+
+    const year = Number(pattern.year);
+    if (Number.isFinite(year) && year > 1900) {
+      return Date.UTC(year, 0, 1);
+    }
+
+    const numericId = Number(pattern.sourceId || pattern.kfiDesignId || pattern.designId || 0);
+    if (Number.isFinite(numericId) && numericId > 0) return numericId;
+
+    // For records without a published date or numeric design ID,
+    // preserve catalog order as a stable fallback.
+    const catalogIndex = patternCatalogOrder.get(patternIdentity(pattern));
+    return Number.isFinite(catalogIndex) ? catalogIndex : 0;
+  }
+
+  function sortRankedPatterns(list) {
+    const mode = state.patternSort || "az";
+    return [...list].sort((a, b) => {
+      if (mode === "za") {
+        return b.name.localeCompare(a.name);
+      }
+      if (mode === "closest") {
+        return b.score - a.score
+          || Number(b.projectMatch) - Number(a.projectMatch)
+          || a.name.localeCompare(b.name);
+      }
+      if (mode === "newest") {
+        return patternRecencyValue(b) - patternRecencyValue(a)
+          || a.name.localeCompare(b.name);
+      }
+      if (mode === "oldest") {
+        return patternRecencyValue(a) - patternRecencyValue(b)
+          || a.name.localeCompare(b.name);
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }
+
   function renderRankedPatternLibrary() {
     const yarn = currentYarn();
     const query = normalizedKey($("patternSearch").value);
@@ -965,9 +1029,9 @@
           ...(pattern.brands || []),
           ...(pattern.usedYarns || [])
         ].join(" ")).includes(query))
-      .map((pattern) => ({ ...pattern, ...rankedPatternMatch(pattern, yarn) }))
-      .sort((a, b) => b.score - a.score || Number(b.projectMatch) - Number(a.projectMatch) || a.name.localeCompare(b.name));
-    const visible = filtered.slice(0, state.patternVisible);
+      .map((pattern) => ({ ...pattern, ...rankedPatternMatch(pattern, yarn) }));
+    const sorted = sortRankedPatterns(filtered);
+    const visible = sorted.slice(0, state.patternVisible);
 
     $("allPatternGrid").innerHTML = visible.map((pattern) => {
       const yarnLabels = (pattern.usedYarns || []).slice(0, 3).map((yarnKey) => yarnKey.replace("|", " — "));
@@ -1004,14 +1068,14 @@
       </article>`;
     }).join("");
 
-    const shown = Math.min(visible.length, filtered.length);
+    const shown = Math.min(visible.length, sorted.length);
     const craftLabel = state.craft === "crochet" ? "crochet" : "knitting";
-    const exactCount = filtered.filter((pattern) => pattern.score === 100).length;
-    $("allPatternCount").textContent = `${filtered.length.toLocaleString()} ${craftLabel} patterns`;
-    $("allPatternSummary").textContent = `Showing ${shown.toLocaleString()} of ${filtered.length.toLocaleString()} ${craftLabel} patterns ranked for ${yarn.name}. ${exactCount.toLocaleString()} exact ${exactCount === 1 ? "match" : "matches"}.`;
+    const exactCount = sorted.filter((pattern) => pattern.score === 100).length;
+    $("allPatternCount").textContent = `${sorted.length.toLocaleString()} ${craftLabel} patterns`;
+    $("allPatternSummary").textContent = `Showing ${shown.toLocaleString()} of ${sorted.length.toLocaleString()} ${craftLabel} patterns ranked for ${yarn.name}. ${exactCount.toLocaleString()} exact ${exactCount === 1 ? "match" : "matches"}.`;
     const more = $("showMorePatterns");
-    more.hidden = shown >= filtered.length;
-    more.textContent = `Show ${Math.min(24, filtered.length - shown).toLocaleString()} more patterns`;
+    more.hidden = shown >= sorted.length;
+    more.textContent = `Show ${Math.min(24, sorted.length - shown).toLocaleString()} more patterns`;
   }
 
   function renderAll() {
@@ -1066,6 +1130,11 @@
       renderRankedPatternLibrary();
     });
     $("patternBrandFilter").addEventListener("change", () => {
+      state.patternVisible = 24;
+      renderRankedPatternLibrary();
+    });
+    $("patternSort").addEventListener("change", () => {
+      state.patternSort = $("patternSort").value;
       state.patternVisible = 24;
       renderRankedPatternLibrary();
     });
