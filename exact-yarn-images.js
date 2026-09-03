@@ -423,18 +423,20 @@
 
   function canonicalSweepWeight(item) {
     const raw = normalize(item && item.weight);
+    const nameHint = normalize(item && item.name);
+    const evidence = raw || nameHint;
     const cyc = Number(item && item.cycWeight);
 
-    if (/\bjumbo\b|\bweight 7\b/.test(raw)) return "Jumbo";
-    if (/\bsuper bulky\b|\bsuper chunky\b|\bweight 6\b/.test(raw)) return "Super Bulky";
-    if (/\bbulky\b|\bchunky\b|\bweight 5\b/.test(raw)) return "Bulky";
-    if (/\baran\b/.test(raw)) return "Aran";
-    if (/\bworsted\b|\bmedium\b|\bweight 4\b/.test(raw)) return "Worsted";
-    if (/\bdk\b|\bdouble knit\b|\blight\b|\bweight 3\b/.test(raw)) return "DK";
-    if (/\bsport\b|\bfine\b|\bweight 2\b/.test(raw)) return "Sport";
-    if (/\bfingering\b|\bsock\b|\b4 ply\b|\bsuper fine\b|\bweight 1\b/.test(raw)) return "Fingering";
-    if (/\blace\b|\bweight 0\b/.test(raw)) return "Lace";
-    if (/\bnovelty\b/.test(raw)) return "Novelty";
+    if (/\bjumbo\b|\bweight 7\b/.test(evidence)) return "Jumbo";
+    if (/\bsuper bulky\b|\bsuper chunky\b|\bweight 6\b/.test(evidence)) return "Super Bulky";
+    if (/\bbulky\b|\bchunky\b|\bweight 5\b/.test(evidence)) return "Bulky";
+    if (/\baran\b/.test(evidence)) return "Aran";
+    if (/\bworsted\b|\bmedium\b|\bweight 4\b/.test(evidence)) return "Worsted";
+    if (/\bdk\b|\bdouble knit\b|\bweight 3\b/.test(evidence)) return "DK";
+    if (/\bsport\b|\bweight 2\b/.test(evidence)) return "Sport";
+    if (/\bfingering\b|\bsock\b|\b4 ply\b|\bsuper fine\b|\bweight 1\b/.test(evidence)) return "Fingering";
+    if (/\blace\b|\bweight 0\b/.test(evidence)) return "Lace";
+    if (/\bnovelty\b/.test(evidence)) return "Novelty";
 
     return CYC_TO_WEIGHT[cyc] || sweepText(item && item.weight) || "";
   }
@@ -578,6 +580,25 @@
       grams: 50, meters: 167, yards: 183, knitGauge: [24,24], knitRowGauge:[32,32], needleSize:"US 2.5 / 3 mm",
       fiber:"100% Alpaca", yarnGroup:"A", sourceUrl:"https://www.garnstudio.com/yarn.php?show=drops-alpaca&cid=17",
       imagePage:"https://www.garnstudio.com/yarn.php?show=drops-alpaca&cid=17"
+    }],
+    ["caron|anniversary cakes", {
+      status: "current",
+      weight: "Super Bulky",
+      cycWeight: 6,
+      grams: 1000,
+      ounces: 35.3,
+      yards: 1061,
+      meters: 970,
+      fiber: "100% Acrylic",
+      knitGauge: [11, 11],
+      knitRowGauge: [14, 14],
+      crochetGauge: [8, 8],
+      crochetRowGauge: [9, 9],
+      needleSize: "US 11 / 8 mm",
+      hookSize: "US L-11 / 8 mm",
+      sourceUrl: "https://www.yarnspirations.com/products/caron-anniversary-cakes-yarn-1000g-35-3oz-discontinued-shades-1",
+      productUrl: "https://www.yarnspirations.com/products/caron-anniversary-cakes-yarn-1000g-35-3oz-discontinued-shades-1",
+      imagePage: "https://www.yarnspirations.com/products/caron-anniversary-cakes-yarn-1000g-35-3oz-discontinued-shades-1"
     }]
   ]);
 
@@ -1288,6 +1309,75 @@
     }
   ];
 
+  const LABEL_FIELDS = [
+    "status", "weight", "cycWeight", "yards", "meters", "grams", "ounces",
+    "fiber", "fiberFamily", "knitGauge", "knitRowGauge", "crochetGauge", "crochetRowGauge",
+    "needleSize", "hookSize", "care", "description", "sourceUrl", "productUrl", "imagePage"
+  ];
+
+  const ESTIMATE_FLAGS = {
+    weight: "weightEstimated",
+    yards: "yardsEstimated",
+    meters: "metersEstimated",
+    knitGauge: "knitGaugeEstimated",
+    crochetGauge: "crochetGaugeEstimated",
+    needleSize: "needleSizeEstimated",
+    hookSize: "hookSizeEstimated"
+  };
+
+  function hasLabelValue(value) {
+    if (value === undefined || value === null || value === "") return false;
+    if (typeof value === "number") return Number.isFinite(value) && value > 0;
+    if (Array.isArray(value)) return value.length > 0;
+    return true;
+  }
+
+  function copyBetterLabelFields(target, source) {
+    if (!target || !source) return target;
+    LABEL_FIELDS.forEach(function (field) {
+      const incoming = source[field];
+      if (!hasLabelValue(incoming)) return;
+      const flag = ESTIMATE_FLAGS[field];
+      const targetMissing = !hasLabelValue(target[field]);
+      const targetEstimated = flag && target[flag] === true;
+      const sourceEstimated = flag && source[flag] === true;
+      if (targetMissing || (targetEstimated && !sourceEstimated)) {
+        target[field] = Array.isArray(incoming) ? incoming.slice() : incoming;
+        if (flag) {
+          if (sourceEstimated) target[flag] = true;
+          else delete target[flag];
+        }
+      }
+    });
+    return target;
+  }
+
+  function mergeRicherYarnDuplicatesAcrossCatalogs() {
+    const richest = new Map();
+    Object.keys(window).forEach(function (key) {
+      const list = window[key];
+      if (!Array.isArray(list) || !/YARN/i.test(key)) return;
+      list.forEach(function (item) {
+        if (!item || typeof item !== "object" || !item.brand || !item.name) return;
+        const key = normalize(sweepBrand(item.brand)) + "|" + sweepName(item.name);
+        const existing = richest.get(key) || { brand: sweepBrand(item.brand), name: item.name };
+        copyBetterLabelFields(existing, item);
+        richest.set(key, existing);
+      });
+    });
+
+    Object.keys(window).forEach(function (key) {
+      const list = window[key];
+      if (!Array.isArray(list) || !/YARN/i.test(key)) return;
+      list.forEach(function (item) {
+        if (!item || typeof item !== "object" || !item.brand || !item.name) return;
+        const richer = richest.get(normalize(sweepBrand(item.brand)) + "|" + sweepName(item.name));
+        if (richer) copyBetterLabelFields(item, richer);
+        repairYarnRecord(item);
+      });
+    });
+  }
+
   function runFullCatalogSweep() {
     const beforeYarns = Array.isArray(window.YARN_CATALOG) ? window.YARN_CATALOG.length : 0;
     const beforePatterns = Array.isArray(window.PATTERN_CATALOG) ? window.PATTERN_CATALOG.length : 0;
@@ -1301,6 +1391,8 @@
         repairBernatBabyBlanket(item);
       });
     });
+
+    mergeRicherYarnDuplicatesAcrossCatalogs();
 
     if (Array.isArray(window.YARN_CATALOG)) {
       window.YARN_CATALOG = dedupeYarnArray(window.YARN_CATALOG);

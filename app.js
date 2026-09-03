@@ -845,7 +845,7 @@
         <span><b>${toolName}:</b> Pattern tool size + both yarn labels are used as supporting evidence; your finished swatch is strongest.</span>`;
     } else {
       $("matchBasis").innerHTML = `<strong>${craftLabel} match details</strong>
-        <span><b>Yarn weight:</b> ${escapeHtml(yarn.weight)}</span>
+        <span><b>Yarn weight:</b> ${escapeHtml(yarn.weight || "Weight not published")}</span>
         <span><b>Yarn gauge:</b> ${escapeHtml(gaugeTextForYarn(yarn))}</span>
         <span><b>${toolName}:</b> ${escapeHtml(recommendedToolLabel(yarn))}</span>`;
     }
@@ -868,8 +868,8 @@
     const yarn = selected[0];
     const second = selected[1] || null;
     const held = Boolean(second);
-    const estimateWeight = held ? combinedYarnWeight(selected) : (weightFamilies(yarn.weight)[0] || yarn.weight);
-    const ranges = baseRanges[estimateWeight] || baseRanges.Worsted;
+    const estimateWeight = held ? combinedYarnWeight(selected) : (weightFamilies(yarn.weight)[0] || yarn.weight || "");
+    const ranges = baseRanges[estimateWeight] || null;
     const isNovelty = yarn.weight === "Novelty" || (second && second.weight === "Novelty");
     const multiplier = craftMultiplier();
     const estimateTarget = $("selectedYarnEstimates") || $("projectCards");
@@ -879,6 +879,15 @@
         <div class="skein-estimates">
           <h3>Yarn Skein Estimates</h3>
           <p>Novelty yarns are pattern-specific. Use the exact pattern yardage rather than a generic project estimate.</p>
+        </div>`;
+      return;
+    }
+
+    if (!ranges) {
+      estimateTarget.innerHTML = `
+        <div class="skein-estimates">
+          <h3>Yarn Skein Estimates</h3>
+          <p>The loaded label does not yet contain enough weight, gauge, or needle/hook information to estimate this yarn responsibly. No substitute Worsted estimate is being used.</p>
         </div>`;
       return;
     }
@@ -1237,8 +1246,13 @@
     const project = $("buyProject").value || state.project;
     const size = $("size").value || "M";
     const buffer = Number($("buffer").value || 0);
-    const estimateWeight = held ? combinedYarnWeight(selected) : (weightFamilies(yarn.weight)[0] || yarn.weight);
-    const ranges = baseRanges[estimateWeight] || baseRanges.Worsted;
+    const estimateWeight = held ? combinedYarnWeight(selected) : (weightFamilies(yarn.weight)[0] || yarn.weight || "");
+    const ranges = baseRanges[estimateWeight] || null;
+    if (!ranges) {
+      $("buyAnswer").textContent = "Need label details";
+      $("buyDetails").textContent = "This yarn does not yet have enough verified weight, gauge, or needle/hook information for a responsible estimate. No Worsted fallback is being used.";
+      return;
+    }
     const range = ranges[project] || [300, 600];
     const sizeFactor = project === "Sweater" || project === "Baby" ? (sizeFactors[size] || 1) : 1;
     const midpoint = ((range[0] + range[1]) / 2) * sizeFactor * craftMultiplier();
@@ -1294,7 +1308,7 @@
             : `<strong>${escapeHtml(yarn.name)}</strong>`;
           return `<li class="yarn-catalog-card">
           ${yarnMedia(yarn, "yarn-catalog-image")}
-          <div>${name}<span>${escapeHtml(yarn.weight)}</span></div>
+          <div>${name}<span>${escapeHtml(yarn.weight || "Weight not published")}</span></div>
         </li>`;
         })
         .join("");
