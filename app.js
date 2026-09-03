@@ -755,7 +755,8 @@
       ${yarnMedia(yarn, "selected-yarn-image")}
       <div class="selected-yarn-copy">
         <div class="kicker">${escapeHtml(label)}</div>
-        <h3>${escapeHtml(yarn.brand)} · ${escapeHtml(yarn.name)}</h3>
+        <h3>${escapeHtml(yarn.brand)} · ${escapeHtml(yarn.displayName || yarn.name)}</h3>
+        ${yarn.description ? `<p class="yarn-description">${escapeHtml(yarn.description)}</p>` : ""}
         <div class="selected-yarn-pills">
           ${[
             yarn.discontinued ? "Discontinued" : null,
@@ -1238,9 +1239,14 @@
   }
 
 
+  function isAnyYarnWeight(value) {
+    const key = normalizedKey(value);
+    return ["any", "any yarn", "any yarn weight", "any weight"].includes(key);
+  }
+
   function patternWeights(pattern) {
     const weights = new Set();
-    if (pattern.weight && pattern.weight !== "Any") weights.add(pattern.weight);
+    if (pattern.weight && !isAnyYarnWeight(pattern.weight)) weights.add(pattern.weight);
     (pattern.usedYarns || []).forEach((yarnKey) => {
       const matchedYarn = yarnByReference(yarnKey);
       if (matchedYarn?.weight) weights.add(matchedYarn.weight);
@@ -1287,7 +1293,7 @@
   }
 
   function patternWeightLabel(pattern) {
-    if (pattern.weight === "Any") return "Any yarn weight";
+    if (isAnyYarnWeight(pattern.weight)) return "Any yarn weight";
     if (pattern.weight) return String(pattern.weight);
     const inferred = new Set();
     (pattern.usedYarns || []).forEach((yarnKey) => {
@@ -1435,7 +1441,9 @@
     if (chosen.length > 1) return 0;
 
     const yarn = chosen[0];
-    if (pattern.weight === "Any") return 18;
+    // "Any" is not evidence that the selected yarn is a technical match.
+    // Let exact-yarn identity and published gauge determine the ranking instead.
+    if (isAnyYarnWeight(pattern.weight)) return 0;
     const weightOrder = new Map([
       ["Lace", 0], ["Fingering", 1], ["Sport", 2], ["DK", 3],
       ["Worsted", 4], ["Aran", 4.35], ["Bulky", 5], ["Super Bulky", 6], ["Jumbo", 7]
@@ -1548,7 +1556,7 @@
     let weightMatch = false;
     if (!heldSelection) {
       const yarnWeights = new Set(weightFamilies(yarn.weight));
-      weightMatch = pattern.weight === "Any" || patternWeights(pattern)
+      weightMatch = !isAnyYarnWeight(pattern.weight) && patternWeights(pattern)
         .flatMap(weightFamilies)
         .some((weight) => yarnWeights.has(weight));
     }
@@ -1588,6 +1596,10 @@
       ? "Your combined swatch gauge is close to the published pattern gauge. Swatch before substituting."
       : heldSelection && bestGauge.level === "caution"
       ? "Your combined swatch gauge is within a caution range; check fabric carefully."
+      : bestGauge.level === "exact" && isAnyYarnWeight(pattern.weight)
+      ? "Very close published gauge. The pattern allows any yarn weight, so weight alone is not counted as match evidence."
+      : bestGauge.level === "close" && isAnyYarnWeight(pattern.weight)
+      ? "Close published gauge. The pattern allows any yarn weight, so weight alone is not counted as match evidence."
       : bestGauge.level === "exact" && weightMatch
       ? "Very close published gauge and yarn-weight match. Swatch before substituting."
       : bestGauge.level === "close" && weightMatch

@@ -429,10 +429,81 @@
     return CYC_TO_WEIGHT[cyc] || sweepText(item && item.weight) || "";
   }
 
+  const VERIFIED_YARN_FACTS = new Map([
+    ["big twist|value", {
+      displayName: "Value Yarn",
+      status: "current",
+      weight: "Worsted",
+      cycWeight: 4,
+      grams: 170,
+      ounces: 6,
+      yards: 380,
+      meters: 347,
+      fiber: "100% Acrylic",
+      knitGauge: [18, 18],
+      knitRowGauge: [24, 24],
+      crochetGauge: [13, 13],
+      crochetRowGauge: [14, 14],
+      needleSize: "US 8 / 5 mm",
+      hookSize: "US H-8 / 5 mm",
+      care: "Machine wash cold, gentle cycle; dry flat",
+      sourceUrl: "https://www.michaels.com/product/big-twist-value-yarn-10794624",
+      productUrl: "https://www.michaels.com/product/big-twist-value-yarn-10794624",
+      imagePage: "https://www.michaels.com/product/big-twist-value-yarn-10794624",
+      description: "A versatile worsted-weight acrylic yarn for accessories, garments, blankets, and home décor."
+    }],
+    ["drops|alpaca", {
+      grams: 50, meters: 167, yards: 183, knitGauge: [24,24], knitRowGauge:[32,32], needleSize:"US 2.5 / 3 mm",
+      fiber:"100% Alpaca", yarnGroup:"A", sourceUrl:"https://www.garnstudio.com/yarn.php?show=drops-alpaca&cid=17",
+      imagePage:"https://www.garnstudio.com/yarn.php?show=drops-alpaca&cid=17"
+    }]
+  ]);
+
+  function applyVerifiedYarnFacts(item) {
+    const key = normalize(item && item.brand) + "|" + normalize(item && item.name);
+    const facts = VERIFIED_YARN_FACTS.get(key);
+    if (!facts) return;
+    for (const [field, value] of Object.entries(facts)) {
+      if (item[field] === undefined || item[field] === null || item[field] === "" ||
+          (typeof item[field] === "number" && !Number.isFinite(item[field]))) {
+        item[field] = Array.isArray(value) ? value.slice() : value;
+      }
+    }
+  }
+
+  function ensureYarnDescription(item) {
+    if (!item || item.description) return;
+    const display = sweepText(item.displayName || item.name);
+    const brand = sweepText(item.brand);
+    const weight = sweepText(item.weight);
+    const fiber = sweepText(item.fiber || item.fiberFamily);
+    const group = sweepText(item.yarnGroup);
+    const yards = Number(item.yards);
+    const meters = Number(item.meters);
+    const grams = Number(item.grams);
+    const parts = [];
+    let lead = [brand, display].filter(Boolean).join(" ");
+    if (weight && fiber) parts.push(`${lead} is a ${weight} yarn made from ${fiber}.`);
+    else if (weight) parts.push(`${lead} is a ${weight} yarn.`);
+    else if (fiber) parts.push(`${lead} is made from ${fiber}.`);
+    if (group) parts.push(`Yarn group ${group}.`);
+    if ((Number.isFinite(yards) && yards > 0 || Number.isFinite(meters) && meters > 0) && Number.isFinite(grams) && grams > 0) {
+      const length = Number.isFinite(yards) && yards > 0
+        ? `${Math.round(yards)} yd${Number.isFinite(meters) && meters > 0 ? ` / ${Math.round(meters)} m` : ""}`
+        : `${Math.round(meters)} m`;
+      parts.push(`${length} per ${Math.round(grams)} g skein.`);
+    }
+    if (parts.length) {
+      item.description = parts.join(" ");
+      item.descriptionGenerated = true;
+    }
+  }
+
   function repairYarnRecord(item) {
     if (!item || typeof item !== "object") return item;
     if (!sweepText(item.brand) || !sweepText(item.name)) return item;
 
+    applyVerifiedYarnFacts(item);
     item.brand = sweepBrand(item.brand);
 
     const weight = canonicalSweepWeight(item);
@@ -475,6 +546,7 @@
     }
 
     addMetricLength(item);
+    ensureYarnDescription(item);
     return item;
   }
 
@@ -1166,7 +1238,26 @@
       repairedUsedYarnAliases: true,
       yarnImageCoverage: imageStats(window.YARN_CATALOG),
       patternImageCoverage: imageStats(window.PATTERN_CATALOG),
-      imageIdentityVerified: false
+      imageIdentityVerified: false,
+      companyAudit: (function () {
+        const report = {};
+        Object.keys(window).forEach(function (key) {
+          const list = window[key];
+          if (!Array.isArray(list) || !/YARN/i.test(key)) return;
+          list.forEach(function (item) {
+            if (!item || typeof item !== "object" || !item.brand || !item.name) return;
+            const brand = String(item.brand);
+            const row = report[brand] || (report[brand] = { yarns:0, missingImage:0, missingWeight:0, missingYardage:0, missingFiber:0, missingDescription:0 });
+            row.yarns += 1;
+            if (!item.image) row.missingImage += 1;
+            if (!item.weight) row.missingWeight += 1;
+            if (!(Number(item.yards)>0 || Number(item.meters)>0)) row.missingYardage += 1;
+            if (!item.fiber && !item.fiberFamily) row.missingFiber += 1;
+            if (!item.description) row.missingDescription += 1;
+          });
+        });
+        return report;
+      }())
     };
   }
 
