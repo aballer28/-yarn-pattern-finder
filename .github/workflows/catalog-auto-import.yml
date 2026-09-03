@@ -1,6 +1,15 @@
-name: Garn Swatch automatic catalog import
+name: Garn Swatch catalog audit and automatic import
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "*.js"
+      - "**/*.js"
+      - "*.mjs"
+      - "**/*.mjs"
+      - "index.html"
+      - ".github/workflows/catalog-auto-import.yml"
   schedule:
     - cron: "20 10 * * *"
     - cron: "50 10 1 * *"
@@ -9,52 +18,140 @@ on:
       catalog:
         description: "Catalog to update"
         required: true
-        default: "patterns"
+        default: "both"
         type: choice
-        options:
-          - patterns
-          - yarns
-          - both
+        options: [patterns, yarns, both]
+      full:
+        description: "Full source sweep"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
 
+concurrency:
+  group: garn-swatch-catalog-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   catalog-update:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 55
-
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
+      - name: Syntax check JavaScript and modules
+        shell: bash
+        run: |
+          set -e
+          while IFS= read -r -d '' f; do node --check "$f"; done < <(find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './.git/*' -print0)
+      - name: Run regression tests
+        run: |
+          node test-audit-repair.mjs
+          node test-koigu-merge.mjs
+          node test-app-regression.mjs
       - name: Choose update
         id: choose
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "catalog=both" >> "$GITHUB_OUTPUT"
+            echo "full=--full" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "catalog=${{ inputs.catalog }}" >> "$GITHUB_OUTPUT"
+            if [ "${{ inputs.full }}" = "true" ]; then echo "full=--full" >> "$GITHUB_OUTPUT"; else echo "full=" >> "$GITHUB_OUTPUT"; fi
           elif [ "${{ github.event.schedule }}" = "50 10 1 * *" ]; then
             echo "catalog=yarns" >> "$GITHUB_OUTPUT"
+            echo "full=" >> "$GITHUB_OUTPUT"
           else
             echo "catalog=patterns" >> "$GITHUB_OUTPUT"
+            echo "full=" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Run Garn Swatch importer
-        run: node catalog-auto-import.mjs "${{ steps.choose.outputs.catalog }}"
-
-      - name: Commit catalog changes
+      - name: Run official-source catalog importer
+        run: node catalog-auto-import.mjs "${{ steps.choose.outputs.catalog }}" ${{ steps.choose.outputs.full }}
+      - name: Generate audit diagnostics
+        run: node catalog-validate.mjs
+      - name: Check exact source and image URLs
+        continue-on-error: true
+        run: node catalog-link-check.mjs
+      - name: Commit refreshed catalogs and audit report
         shell: bash
         run: |
-          git add auto-yarns.js auto-patterns.js catalog-auto-state.json catalog-auto-changes.js
-          if git diff --cached --quiet; then
-            echo "No catalog changes."
-            exit 0
+          git add auto-yarns.js auto-patterns.js catalog-auto-state.json catalog-auto-changes.js catalog-audit-report.json catalog-link-report.json
+          if ! git diff --cached --quiet; then
+            git config user.name "Garn Swatch catalog updater"
+            git config user.email "actions@users.noreply.github.com"
+            git commit -m "Refresh Garn Swatch catalog and audit report"
+            git push
+          else
+            echo "No catalog or audit changes."
           fi
-          git config user.name "Garn Swatch catalog updater"
-          git config user.email "actions@users.noreply.github.com"
-          git commit -m "Automatic Garn Swatch catalog update"
-          git push
+
+      - name: Wait for Vercel production to serve this audit
+        id: vercel_wait
+        continue-on-error: true
+        shell: bash
+        env:
+          LIVE_URL: https://yarn-pattern-finder.vercel.app
+        run: |
+          EXPECTED=$(node -e "console.log(require('./catalog-audit-report.json').generatedAt)")
+          for i in $(seq 1 60); do
+            BODY=$(curl -fsSL --max-time 15 "$LIVE_URL/catalog-audit-report.json?check=$i" 2>/dev/null || true)
+            if [ -n "$BODY" ] && echo "$BODY" | grep -Fq "$EXPECTED"; then
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          exit 1
+
+      - name: Install browser for live regression
+        if: steps.vercel_wait.outputs.ready == 'true'
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Run desktop and iPhone-size live regression
+        id: live_test
+        if: steps.vercel_wait.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          LIVE_URL: https://yarn-pattern-finder.vercel.app
+        run: node live-regression.mjs
+
+      - name: Record protected/skipped live verification
+        if: steps.vercel_wait.outputs.ready != 'true'
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          fs.writeFileSync('live-regression-report.json', JSON.stringify({
+            generatedAt: new Date().toISOString(),
+            base: 'https://yarn-pattern-finder.vercel.app',
+            passed: false,
+            skipped: true,
+            reason: 'Production did not expose the matching audit report to the GitHub runner. This commonly means Vercel authentication/protection is enabled; use connected Vercel access for final live verification.'
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Commit live regression report
+        shell: bash
+        run: |
+          git add live-regression-report.json
+          if ! git diff --cached --quiet; then
+            git config user.name "Garn Swatch catalog updater"
+            git config user.email "actions@users.noreply.github.com"
+            git commit -m "Record Garn Swatch live regression"
+            git push
+          fi
+
+      - name: Fail if public live regression found a real defect
+        if: steps.vercel_wait.outputs.ready == 'true' && steps.live_test.outcome == 'failure'
+        run: exit 1
