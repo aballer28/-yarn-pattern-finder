@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import vm from "node:vm";
 
 const mode = String(process.argv[2] || "patterns").toLowerCase();
+const fullRun = process.argv.includes("--full");
 if (!["patterns", "yarns", "both"].includes(mode)) {
   throw new Error("Usage: node catalog-auto-import.mjs patterns|yarns|both");
 }
@@ -19,6 +20,8 @@ const CATALOG_FILES = [
   "berroco-family-safe.js",
   "quince-family-catalog.js",
   "luca-s-catalog.js",
+  "lise-tailor-catalog.js",
+  "uk-alpaca-catalog.js",
   "vobelle-catalog.js",
   "atlantic-coast-catalog.js",
   "wollbiene-catalog.js",
@@ -37,7 +40,8 @@ const CATALOG_FILES = [
   "knit-picks-catalog.js",
   "auto-yarns.js",
   "auto-patterns.js",
-  "catalog-integration.js"
+  "catalog-integration.js",
+  "catalog-audit-repair.js"
 ];
 
 const BRAND_BY_DOMAIN = {
@@ -64,12 +68,110 @@ const BRAND_BY_DOMAIN = {
   "istex.is": "Ístex",
   "www.istex.is": "Ístex",
   "www.garnstudio.com": "DROPS",
-  "garnstudio.com": "DROPS"
+  "garnstudio.com": "DROPS",
+  "lisetailor.com": "Lise Tailor",
+  "www.lisetailor.com": "Lise Tailor",
+  "ukalpaca.com": "UK Alpaca",
+  "www.ukalpaca.com": "UK Alpaca",
+  "quinceandco.com": "Quince & Co.",
+  "www.quinceandco.com": "Quince & Co.",
+  "knittingforolive.com": "Knitting for Olive",
+  "www.knittingforolive.com": "Knitting for Olive",
+  "bettaknit.com": "Bettaknit",
+  "www.bettaknit.com": "Bettaknit",
+  "purlsoho.com": "Purl Soho",
+  "www.purlsoho.com": "Purl Soho",
+  "woolcouturecompany.com": "Wool Couture",
+  "www.woolcouturecompany.com": "Wool Couture",
+  "bcgarn.com": "BC Garn",
+  "www.bcgarn.com": "BC Garn",
+  "wollbiene-shop.de": "Wollbiene",
+  "www.wollbiene-shop.de": "Wollbiene"
 };
 
 const REQUEST_HEADERS = {
   "user-agent": "Garn-Swatch-Catalog-Updater/1.0 (+catalog maintenance)",
   "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+};
+
+// Some official brand sites intentionally hand product/design links to a parent
+// company or sibling shop domain. These are verified first-party handoffs, not
+// arbitrary cross-site crawling. Direct PDFs linked by an official seed page are
+// also allowed because many manufacturers host pattern files on a CDN.
+const OFFICIAL_HANDOFFS = new Map([
+  ["bcgarn.com", new Set(["schmeichelgarne.de", "www.schmeichelgarne.de"])],
+  ["www.bcgarn.com", new Set(["schmeichelgarne.de", "www.schmeichelgarne.de"])],
+  ["koigu.com", new Set(["koigustudio.com", "www.koigustudio.com", "shop.koigustudio.com"])],
+  ["www.koigu.com", new Set(["koigustudio.com", "www.koigustudio.com", "shop.koigustudio.com"])]
+]);
+
+function officialLinkedUrl(seedUrl, candidateUrl) {
+  try {
+    const seed = new URL(seedUrl);
+    const candidate = new URL(candidateUrl);
+    if (candidate.origin === seed.origin) return true;
+    if (/\.pdf(?:$|[?#])/i.test(candidate.pathname + candidate.search)) return true;
+    const allowed = OFFICIAL_HANDOFFS.get(seed.hostname.toLowerCase());
+    return Boolean(allowed && allowed.has(candidate.hostname.toLowerCase()));
+  } catch {
+    return false;
+  }
+}
+
+// Explicit official-source seeds prevent a brand with zero existing pattern records
+// from becoming permanently invisible to the automatic importer.
+const SOURCE_SEEDS = {
+  patterns: [
+    ["Knitting Fever", "https://knittingfever.com/pattern-finder"],
+    ["Koigu", "https://www.koigu.com/"],
+    ["Koigu", "https://www.koigu.com/books"],
+    ["BC Garn", "https://www.bcgarn.com/"],
+    ["Lise Tailor", "https://lisetailor.com/en/collections/patrons-de-tricot"],
+    ["Lise Tailor", "https://lisetailor.com/en/collections/kit-tricot"],
+    ["Luca-S", "https://www.luca-s.com/collections/knitting-patterns"],
+    ["UK Alpaca", "https://www.ukalpaca.com/products/knitting-patterns/"],
+    ["UK Alpaca", "https://www.ukalpaca.com/products/knitting-patterns/4-ply-knitting-patterns/"],
+    ["Quince & Co.", "https://quinceandco.com/collections/patterns"],
+    ["Kelbourne Woolens", "https://kelbournewoolens.com/collections/kelbourne-woolens-knitting-and-crochet-patterns"],
+    ["Knitting for Olive", "https://knittingforolive.com/collections/patterns"],
+    ["Knitting for Olive", "https://knittingforolive.com/collections/all-patterns"],
+    ["Wool Couture", "https://www.woolcouturecompany.com/collections/knitting-patterns"],
+    ["Bettaknit", "https://www.bettaknit.com/collections/patterns"],
+    ["Purl Soho", "https://www.purlsoho.com/collections/patterns-books-patterns"],
+    ["Purl Soho", "https://www.purlsoho.com/collections/patterns-books-knitting"],
+    ["Purl Soho", "https://www.purlsoho.com/collections/patterns-books"],
+    ["Lion Brand", "https://www.lionbrand.com/collections/all-knit-crochet-patterns"],
+    ["Yarnspirations", "https://www.yarnspirations.com/collections/patterns"],
+    ["Berroco", "https://berroco.com/patterns"],
+    ["DROPS", "https://www.garnstudio.com/search.php?action=browse&lang=en"],
+    ["Plymouth Yarn", "https://www.plymouthyarn.com/patterns"],
+    ["Cascade Yarns", "https://www.cascadeyarns.com/patterns"],
+    ["Malabrigo", "https://malabrigoyarn.com/patterns"],
+    ["Knit Picks", "https://www.knitpicks.com/patterns/knitting-patterns/c/300201"]
+  ],
+  yarns: [
+    ["Knitting Fever", "https://knittingfever.com/"],
+    ["Koigu", "https://www.koigu.com/"],
+    ["BC Garn", "https://www.bcgarn.com/"],
+    ["Lise Tailor", "https://lisetailor.com/en/pages/nos-laines"],
+    ["Luca-S", "https://www.luca-s.com/collections/yarn"],
+    ["UK Alpaca", "https://www.ukalpaca.com/"],
+    ["UK Alpaca", "https://www.ukalpaca.com/shop/"],
+    ["Quince & Co.", "https://quinceandco.com/collections/yarn"],
+    ["Kelbourne Woolens", "https://kelbournewoolens.com/collections/yarn"],
+    ["Knitting for Olive", "https://knittingforolive.com/collections/yarn"],
+    ["Wool Couture", "https://www.woolcouturecompany.com/collections/yarn"],
+    ["Bettaknit", "https://www.bettaknit.com/collections/yarns"],
+    ["Purl Soho", "https://www.purlsoho.com/collections/yarn"],
+    ["Lion Brand", "https://www.lionbrand.com/collections/all-knitting-crochet-yarn"],
+    ["Yarnspirations", "https://www.yarnspirations.com/collections/yarn"],
+    ["Berroco", "https://berroco.com/yarn/"],
+    ["DROPS", "https://www.garnstudio.com/yarns.php?cid=19"],
+    ["Plymouth Yarn", "https://www.plymouthyarn.com/yarn"],
+    ["Cascade Yarns", "https://www.cascadeyarns.com/yarns"],
+    ["Malabrigo", "https://malabrigoyarn.com/yarns"],
+    ["Knit Picks", "https://www.knitpicks.com/yarn"]
+  ]
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -466,16 +568,22 @@ function extractYarn(url, html, brandHint = "") {
   const brand = brandName(product.brand, host) || brandHint || BRAND_BY_DOMAIN[host] || host;
   const image = firstImage(product.image) || meta(html, "og:image");
 
+  const publishedKnitGauge = inferYarnPublishedGauge(description, "knit");
+  const publishedCrochetGauge = inferYarnPublishedGauge(description, "crochet");
   return {
     brand,
     name: title.replace(/\s+yarn$/i, "").trim(),
     weight: details.weight || "",
+    manufacturerWeight: details.weight || "",
     yards: details.yards,
     meters: details.meters,
     grams: details.grams,
-    knitGauge: details.knitGauge,
-    crochetGauge: null,
-    fiber: "",
+    knitGauge: publishedKnitGauge,
+    crochetGauge: publishedCrochetGauge,
+    publishedGaugeUnclassified: !publishedKnitGauge && !publishedCrochetGauge ? details.knitGauge : null,
+    needleSize: inferYarnTool(description, "knit"),
+    hookSize: inferYarnTool(description, "crochet"),
+    fiber: inferFiber(description),
     image,
     sourceUrl: canonicalUrl(url),
     discontinued: /\b(discontinued|no longer (?:made|available|produced))\b/i.test(description),
@@ -483,27 +591,184 @@ function extractYarn(url, html, brandHint = "") {
   };
 }
 
-function inferCraft(text) {
-  const hasCrochet = /\bcrochet\b/i.test(text);
-  const hasKnit = /\bknit(?:ting)?\b/i.test(text);
+function inferCraft(text, title = "") {
+  const titleText = String(title || "");
+  if (/\b(crochet|crocheted|amigurumi|granny)\b/i.test(titleText)) return "crochet";
+  if (/\b(knit|knitting|knitted)\b/i.test(titleText)) return "knit";
+  const hasCrochet = /\bcrochet(?:ed|ing)?\b/i.test(text);
+  const hasKnit = /\bknit(?:ted|ting)?\b/i.test(text);
   if (hasCrochet && !hasKnit) return "crochet";
-  return "knit";
+  if (hasKnit && !hasCrochet) return "knit";
+  return "unknown";
 }
 
 function inferProject(text) {
   const types = [
-    ["Hat", /\b(hat|beanie|cap)\b/i],
-    ["Sweater", /\b(sweater|pullover|cardigan|vest)\b/i],
-    ["Scarf", /\b(scarf|cowl|shawl|wrap)\b/i],
-    ["Mittens", /\b(mitten|glove|fingerless)\b/i],
+    ["Hat", /\b(hat|beanie|cap|tam|beret)\b/i],
+    ["Cowl", /\b(cowl|snood)\b/i],
+    ["Shawl", /\b(shawl|wrap|stole)\b/i],
+    ["Scarf", /\bscarf\b/i],
+    ["Mittens", /\b(mitten|mitts?|glove|fingerless)\b/i],
     ["Socks", /\bsocks?\b/i],
-    ["Blanket", /\b(blanket|afghan|throw)\b/i]
+    ["Stocking", /\bstocking\b/i],
+    ["Blanket", /\b(blanket|afghan|throw)\b/i],
+    ["Baby", /\b(baby|infant|layette|romper)\b/i],
+    ["Sweater", /\b(sweater|pullover|cardigan|vest|tee|top|tunic|dress)\b/i]
   ];
   for (const [label, re] of types) if (re.test(text)) return label;
   return "Other";
 }
 
-function extractPattern(url, html, brandHint = "") {
+function inferProjectType(text) {
+  const types = [
+    ["Cardigan", /\bcardigan\b/i], ["Pullover", /\b(pullover|sweater|jumper)\b/i],
+    ["Vest", /\bvest\b/i], ["Top", /\b(tee|top|tank|camisole)\b/i], ["Dress", /\bdress\b/i],
+    ["Hat", /\b(hat|beanie|cap|tam|beret)\b/i], ["Cowl", /\bcowl\b/i], ["Shawl", /\b(shawl|wrap|stole)\b/i],
+    ["Scarf", /\bscarf\b/i], ["Mittens", /\b(mitten|mitts?|glove)\b/i], ["Socks", /\bsocks?\b/i],
+    ["Blanket", /\b(blanket|afghan|throw)\b/i], ["Toy", /\b(toy|amigurumi|doll|animal)\b/i], ["Home", /\b(pillow|cushion|basket|dishcloth|towel)\b/i]
+  ];
+  for (const [label, re] of types) if (re.test(text)) return label;
+  return "Other";
+}
+
+function inferPatternGauge(text) {
+  const plain = String(text || "").replace(/\s+/g, " ");
+
+  const patterns = [
+    /(\d+(?:\.\d+)?)\s*(?:sts?|stitches?)\s*(?:and|x|×|,)?\s*(?:(\d+(?:\.\d+)?)\s*(?:rows?|rnds?|rounds?)\s*)?(?:=|per|in)\s*(\d+(?:\.\d+)?)\s*(cm|in(?:ches?)?)/i,
+    /(\d+(?:\.\d+)?)\s*(?:sts?|stitches?)\s*(?:\/|per)\s*(4)\s*(in(?:ches?)?)/i,
+    /(\d+(?:\.\d+)?)\s*(?:sts?|stitches?)\s*(?:\/|per)\s*(10)\s*(cm)/i
+  ];
+
+  for (const re of patterns) {
+    const match = plain.match(re);
+    if (!match) continue;
+
+    const stitches = Number(match[1]);
+    let rows = null;
+    let measurement = null;
+    let unit = "in";
+
+    if (re === patterns[0]) {
+      rows = Number(match[2]) || null;
+      measurement = Number(match[3]);
+      unit = /^cm$/i.test(match[4]) ? "cm" : "in";
+    } else {
+      measurement = Number(match[2]);
+      unit = /^cm$/i.test(match[3]) ? "cm" : "in";
+    }
+
+    if (!Number.isFinite(stitches) || !Number.isFinite(measurement) || measurement <= 0) continue;
+
+    const inches = unit === "cm" ? measurement / 2.54 : measurement;
+    const normalizedStitches = stitches * (4 / inches);
+    const normalizedRows = Number.isFinite(rows) && rows > 0 ? rows * (4 / inches) : null;
+
+    return {
+      stitches: Math.round(normalizedStitches * 10) / 10,
+      rows: normalizedRows ? Math.round(normalizedRows * 10) / 10 : null,
+      measurement: 4,
+      original: match[0].trim()
+    };
+  }
+
+  return null;
+}
+
+function inferPatternTool(text, craft) {
+  const plain = String(text || "").replace(/\s+/g, " ");
+  const label = craft === "crochet" ? "(?:crochet\\s*)?hook" : "(?:knitting\\s*)?needles?";
+  const match = plain.match(new RegExp(`${label}[^.;|]{0,80}?((?:US\\s*)?\\d+(?:\\.\\d+)?(?:\\s*[-–]\\s*\\d+(?:\\.\\d+)?)?[^.;|]{0,30}?(?:mm)?)`, "i"));
+  return match ? match[1].trim() : "";
+}
+
+
+function inferSkillLevel(text) {
+  const match = String(text || "").match(/\b(?:skill\s*level|difficulty)\s*[:\-]?\s*(beginner|easy|intermediate|advanced|experienced|adventurous beginner)\b/i);
+  return match ? match[1].replace(/\b\w/g, (c) => c.toUpperCase()) : "";
+}
+
+function inferSizesText(text) {
+  const plain = String(text || "").replace(/\s+/g, " ");
+  const match = plain.match(/\b(?:sizes?|size)\s*[:\-]\s*([^.;]{2,220})/i);
+  return match ? match[1].trim() : "";
+}
+
+function inferFreeStatus(product, text) {
+  const offers = Array.isArray(product?.offers) ? product.offers : (product?.offers ? [product.offers] : []);
+  const prices = offers.map((o) => Number(o?.price ?? o?.lowPrice)).filter(Number.isFinite);
+  if (prices.length && Math.min(...prices) === 0) return true;
+  if (prices.length && Math.min(...prices) > 0) return false;
+  if (/\bfree\s+(?:knit(?:ting)?|crochet|pattern|download|pdf)\b/i.test(String(text || ""))) return true;
+  return null;
+}
+
+function inferFiber(text) {
+  const plain = String(text || "").replace(/\s+/g, " ");
+  const matches = [...plain.matchAll(/(\d{1,3}(?:\.\d+)?)\s*%\s*([A-Za-z][A-Za-z \-’'&]{1,40})/g)]
+    .slice(0, 6)
+    .map((m) => `${m[1]}% ${m[2].trim().replace(/\s+(?:and|with|care|weight|gauge|needle|hook).*$/i, "")}`);
+  return matches.join(" / ");
+}
+
+function inferYarnPublishedGauge(text, craft) {
+  const plain = String(text || "").replace(/\s+/g, " ");
+  const word = craft === "crochet" ? "crochet" : "(?:knit|knitting)";
+  const labeled = plain.match(new RegExp(`${word}[^.;]{0,45}?(\\d+(?:\\.\\d+)?)\\s*(?:-|–|to)?\\s*(\\d+(?:\\.\\d+)?)?\\s*(?:sts?|stitches?)[^.;]{0,25}?(?:4\\s*(?:in|inch)|10\\s*cm)`, "i"));
+  if (!labeled) return null;
+  const a = Number(labeled[1]); const b = Number(labeled[2] || labeled[1]);
+  return Number.isFinite(a) && Number.isFinite(b) ? [Math.min(a,b), Math.max(a,b)] : null;
+}
+
+function inferYarnTool(text, craft) {
+  const plain = String(text || "").replace(/\s+/g, " ");
+  const label = craft === "crochet" ? "(?:crochet\\s*)?hook" : "(?:knitting\\s*)?needles?";
+  const match = plain.match(new RegExp(`${label}[^.;]{0,65}?((?:US\\s*)?[A-Z]?[- ]?\\d+(?:\\.\\d+)?(?:\\s*[-–]\\s*[A-Z]?[- ]?\\d+(?:\\.\\d+)?)?[^.;]{0,25}?(?:mm)?)`, "i"));
+  return match ? match[1].trim() : "";
+}
+
+function inferPublishedDate(product, html) {
+  const candidates = [
+    product && product.datePublished,
+    product && product.releaseDate,
+    meta(html, "article:published_time"),
+    meta(html, "date")
+  ].filter(Boolean);
+  for (const value of candidates) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  }
+  return null;
+}
+
+
+function inferUsedYarns(text, referenceYarns, sourceBrand = "") {
+  const hay = norm(text);
+  if (!hay || !Array.isArray(referenceYarns)) return [];
+  const brandNorm = norm(sourceBrand);
+  const candidates = referenceYarns
+    .filter((y) => y && y.brand && y.name && (!brandNorm || norm(y.brand) === brandNorm || hay.includes(norm(y.brand))))
+    .map((y) => ({ y, token: norm(y.name) }))
+    .filter((x) => x.token.length >= 3 && hay.includes(x.token))
+    .sort((a, b) => b.token.length - a.token.length);
+  const chosen = [];
+  for (const { y, token } of candidates) {
+    if (chosen.some((x) => x.token.includes(token) || token.includes(x.token))) continue;
+    chosen.push({ token, ref: `${y.brand}|${y.name}` });
+    if (chosen.length >= 6) break;
+  }
+  return chosen.map((x) => x.ref);
+}
+
+function heldTogetherInfo(text) {
+  const plain = String(text || "");
+  const match = plain.match(/(?:hold|held|holding)\s+(two|2|three|3|four|4)\s+(?:strands?|yarns?)\s+together/i);
+  const word = match && String(match[1]).toLowerCase();
+  const count = word === "two" ? 2 : word === "three" ? 3 : word === "four" ? 4 : Number(word || 0);
+  return { heldTogether: count > 1, strandCount: count > 1 ? count : null };
+}
+
+function extractPattern(url, html, brandHint = "", referenceYarns = []) {
   const host = domainOf(url);
   const ld = extractJsonLd(html);
   const product = ld.find((x) => {
@@ -522,21 +787,103 @@ function extractPattern(url, html, brandHint = "") {
     (html.match(/https:\/\/(?:www\.)?ravelry\.com\/patterns\/library\/[^"' <]+/i) || [])[0] || ""
   );
 
+  const craft = inferCraft(description, title);
+  const gauge = inferPatternGauge(description);
+  const tool = inferPatternTool(description, craft);
+  const usedYarns = inferUsedYarns(`${title} ${description}`, referenceYarns, brand);
+  const held = heldTogetherInfo(description);
+
   return {
     sourceId: `auto:${norm(host)}:${norm(title)}`,
     name: title.replace(/\s+pattern$/i, "").trim(),
     designer: brand,
-    craft: inferCraft(description),
+    craft,
     project: inferProject(`${title} ${description}`),
+    projectType: inferProjectType(`${title} ${description}`),
     weight: inferWeight(description),
+    gauge,
+    gaugeOriginal: gauge?.original || "",
+    needleSize: craft === "knit" ? tool : "",
+    hookSize: craft === "crochet" ? tool : "",
     image,
     url: canonicalUrl(url),
     ravelryUrl: directRavelry,
     sourceBrand: brand,
-    brands: [brand],
-    usedYarns: [],
+    brands: [...new Set([brand, ...usedYarns.map((ref) => String(ref).split("|")[0])].filter(Boolean))],
+    usedYarns,
+    heldTogether: held.heldTogether,
+    strandCount: held.strandCount,
+    skillLevel: inferSkillLevel(description),
+    sizesText: inferSizesText(description),
+    free: inferFreeStatus(product, description),
+    publishedAt: inferPublishedDate(product, html),
     autoImported: true
   };
+}
+
+
+function extractPatternSections(url, html, brandHint = "", referenceYarns = []) {
+  const out = [];
+  const host = domainOf(url);
+  const headingRe = /<h([1-4])\b[^>]*>([\s\S]*?)<\/h\1>/gi;
+  const headings = [];
+  let match;
+  while ((match = headingRe.exec(html))) {
+    const title = cleanName(stripHtml(match[2]));
+    if (!title || title.length < 3 || title.length > 100) continue;
+    headings.push({ title, start: match.index, end: headingRe.lastIndex });
+  }
+  const ignored = /^(?:patterns?|pattern overview|overview|yarn|materials?|needles?|hooks?|gauge|skill level|sizes?|measurements?|description|details|featured|more inspiration)$/i;
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i];
+    if (ignored.test(h.title)) continue;
+    const end = headings[i + 1]?.start ?? Math.min(html.length, h.end + 10000);
+    const section = stripHtml(html.slice(h.end, end));
+    if (section.length < 25 || !/\b(?:yarn|gauge|needle|hook|knit|crochet|skill\s*level|sizes?)\b/i.test(section)) continue;
+    // Require stronger pattern evidence than an ordinary marketing heading.
+    if (!/\b(?:yarn|gauge)\b/i.test(section) || !/\b(?:knit|crochet|needle|hook|sts?|stitches?)\b/i.test(section)) continue;
+    const brand = brandHint || BRAND_BY_DOMAIN[host] || host;
+    const craft = inferCraft(section, h.title);
+    const gauge = inferPatternGauge(section);
+    const usedYarns = inferUsedYarns(`${h.title} ${section}`, referenceYarns, brand);
+    const held = heldTogetherInfo(section);
+    const record = {
+      sourceId: `auto-section:${norm(host)}:${norm(h.title)}:${norm(url)}`,
+      name: h.title.replace(/\s+pattern$/i, "").trim(),
+      designer: brand,
+      craft,
+      project: inferProject(`${h.title} ${section}`),
+      projectType: inferProjectType(`${h.title} ${section}`),
+      weight: inferWeight(section),
+      gauge,
+      gaugeOriginal: gauge?.original || "",
+      needleSize: craft === "knit" ? inferPatternTool(section, craft) : "",
+      hookSize: craft === "crochet" ? inferPatternTool(section, craft) : "",
+      image: "",
+      url: canonicalUrl(url),
+      sourceBrand: brand,
+      brands: [...new Set([brand, ...usedYarns.map((ref) => ref.split("|")[0])].filter(Boolean))],
+      usedYarns,
+      heldTogether: held.heldTogether,
+      strandCount: held.strandCount,
+      skillLevel: inferSkillLevel(section),
+      sizesText: inferSizesText(section),
+      free: inferFreeStatus({}, section),
+      autoImported: true,
+      collectionSection: true
+    };
+    out.push(record);
+  }
+  // Only use section splitting when it found credible child designs. The normal
+  // page extractor remains the fallback for standard one-design pages.
+  return out;
+}
+
+function extractPatternsFromPage(url, html, brandHint = "", referenceYarns = []) {
+  const sections = extractPatternSections(url, html, brandHint, referenceYarns);
+  const single = extractPattern(url, html, brandHint, referenceYarns);
+  if (sections.length >= 2) return sections;
+  return single ? [single] : sections;
 }
 
 function yarnKey(y) {
@@ -562,9 +909,124 @@ async function readAutoChanges() {
   };
 }
 
-async function crawl(kind, existing, state) {
-  const existingUrls = seedUrls(existing, kind);
-  const knownUrls = new Set([
+
+
+async function crawlDropsPatternIndex(referenceYarns = []) {
+  if (!fullRun) return { found: [], urls: [] };
+  const pages = Array.from({ length: 420 }, (_, i) => i + 1);
+  const pageResults = await mapPool(pages, 10, async (page) => {
+    const url = `https://www.garnstudio.com/search.php?action=browse&lang=en&page=${page}`;
+    const res = await fetchText(url, { timeout: 18000 });
+    return res.ok ? { url: res.url || url, html: res.text } : null;
+  });
+  const byId = new Map();
+  for (const page of pageResults.filter(Boolean)) {
+    const html = page.html;
+    const re = /href=["']([^"']*pattern\.php\?[^"']*\bid=(\d+)[^"']*)["']/gi;
+    let match;
+    while ((match = re.exec(html))) {
+      const id = match[2];
+      if (byId.has(id)) continue;
+      let absolute;
+      try { absolute = new URL(htmlDecode(match[1]).replace(/&amp;/g, "&"), page.url).toString(); } catch { continue; }
+      const chunk = html.slice(Math.max(0, match.index - 1800), Math.min(html.length, match.index + 2600));
+      const plain = stripHtml(chunk).replace(/\s+/g, " ");
+      const codeMatch = plain.match(/DROPS\s+(\d{2,4}-\d{1,3})/i);
+      const code = codeMatch ? codeMatch[1] : id;
+      const titleCandidates = [
+        ...chunk.matchAll(/(?:alt|title)=["']([^"']{3,120})["']/gi)
+      ].map((m) => htmlDecode(m[1]).trim()).filter((v) => !/^(?:image|photo|drops design)$/i.test(v));
+      const descriptive = titleCandidates.find((v) => !/drops\s*\d/i.test(v) && !/logo|icon|arrow/i.test(v));
+      const name = descriptive ? `${descriptive} / DROPS ${code}` : `DROPS ${code}`;
+      const yarnMatch = plain.match(/DROPS\s+([A-Za-z][A-Za-z0-9 +&'’\-]{1,45}?)\s*\((\d+(?:\.\d+)?)\s*sts?\)/i);
+      let usedYarns = [];
+      let gauge = null;
+      if (yarnMatch) {
+        const yarnName = yarnMatch[1].trim();
+        const existing = referenceYarns.find((y) => norm(y.brand) === "drops" && norm(y.name) === norm(yarnName));
+        usedYarns = [`${existing?.brand || "DROPS"}|${existing?.name || yarnName}`];
+        const stitches = Number(yarnMatch[2]);
+        if (Number.isFinite(stitches)) gauge = { stitches, rows: null, measurement: 4, original: `${stitches} sts / 10 cm` };
+      }
+      const craft = /\bcrochet(?:ed)?\b/i.test(plain) && !/\bknit(?:ted|ting)?\b/i.test(plain) ? "crochet" : "knit";
+      byId.set(id, {
+        sourceId: `drops:${id}`,
+        name,
+        designer: "DROPS Design",
+        craft,
+        project: inferProject(plain),
+        projectType: inferProjectType(plain),
+        weight: "",
+        gauge,
+        gaugeOriginal: gauge?.original || "",
+        image: "",
+        url: canonicalUrl(absolute),
+        sourceBrand: "DROPS",
+        brands: ["DROPS"],
+        usedYarns,
+        autoImported: true
+      });
+    }
+  }
+  return { found: [...byId.values()], urls: [...byId.values()].map((p) => p.url) };
+}
+
+async function discoverLinksFromSeeds(kind, seedPairs, referenceYarns = []) {
+  const urls = [];
+  const directRecords = [];
+  for (const [brand, rawSeed] of seedPairs) {
+    const seed = canonicalUrl(rawSeed);
+    if (!seed) continue;
+    const res = await fetchText(seed, { timeout: 18000 });
+    if (!res.ok) continue;
+    const finalSeed = res.url || seed;
+    const origin = (() => { try { return new URL(finalSeed).origin; } catch { return ""; } })();
+    const anchorRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+    let count = 0;
+    while ((match = anchorRe.exec(res.text)) && count < 2500) {
+      let href = htmlDecode(match[1]).trim();
+      const label = stripHtml(match[2]).trim();
+      if (!href || href.startsWith("#") || /^(?:mailto:|tel:|javascript:)/i.test(href)) continue;
+      let absolute;
+      try { absolute = new URL(href, finalSeed).toString(); } catch { continue; }
+      if (origin && !officialLinkedUrl(finalSeed, absolute)) continue;
+      if (/\.(?:jpg|jpeg|png|gif|webp|svg|zip)(?:\?|$)/i.test(absolute)) continue;
+      if (/\b(?:account|login|cart|checkout|privacy|terms|contact|about|search)\b/i.test(absolute) && !/pattern|design|yarn/i.test(absolute)) continue;
+      if (kind === "patterns" && /\.pdf(?:\?|$)/i.test(absolute)) {
+        const name = cleanName(label || absolute.split("/").pop().replace(/[-_]+/g, " ").replace(/\.pdf.*$/i, ""));
+        if (name.length >= 3) {
+          const context = stripHtml(res.text.slice(Math.max(0, match.index - 700), match.index + match[0].length + 700));
+          const usedYarns = inferUsedYarns(`${name} ${context}`, referenceYarns, brand);
+          const held = heldTogetherInfo(context);
+          directRecords.push({
+            sourceId: `auto-pdf:${norm(domainOf(absolute))}:${norm(name)}:${norm(absolute)}`,
+            name, designer: brand, sourceBrand: brand, brands: [...new Set([brand, ...usedYarns.map((r) => r.split("|")[0])])],
+            craft: inferCraft(context, name), project: inferProject(`${name} ${context}`), projectType: inferProjectType(`${name} ${context}`), usedYarns,
+            heldTogether: held.heldTogether, strandCount: held.strandCount,
+            gauge: inferPatternGauge(context), gaugeOriginal: inferPatternGauge(context)?.original || "",
+            pdfUrl: canonicalUrl(absolute), url: canonicalUrl(absolute), image: "", autoImported: true
+          });
+        }
+        count++; continue;
+      }
+      if (/\.pdf(?:\?|$)/i.test(absolute)) continue;
+      // On an official patterns/yarns listing, linked item pages are valuable even
+      // when their slugs don't literally contain the word "pattern" or "yarn".
+      if (label.length >= 2 || /pattern|design|yarn|product|shop/i.test(absolute)) {
+        urls.push(canonicalUrl(absolute)); count++;
+      }
+    }
+  }
+  return { urls: [...new Set(urls.filter(Boolean))], directRecords };
+}
+
+async function crawl(kind, existing, state, referenceYarns = []) {
+  const seedPairs = SOURCE_SEEDS[kind] || [];
+  const seedLinks = await discoverLinksFromSeeds(kind, seedPairs, referenceYarns);
+  const dropsIndex = kind === "patterns" ? await crawlDropsPatternIndex(referenceYarns) : { found: [], urls: [] };
+  const existingUrls = [...new Set([...seedUrls(existing, kind), ...seedPairs.map(([, url]) => canonicalUrl(url)).filter(Boolean)])];
+  const knownUrls = fullRun ? new Set() : new Set([
     ...existingUrls,
     ...((kind === "patterns" ? state.knownPatternUrls : state.knownYarnUrls) || [])
   ]);
@@ -593,16 +1055,25 @@ async function crawl(kind, existing, state) {
     counts.set(brand, (counts.get(brand) || 0) + 1);
   }
 
+  for (const [brand, url] of seedPairs) {
+    const host = domainOf(url);
+    if (!host) continue;
+    if (!brandCountsByDomain.has(host)) brandCountsByDomain.set(host, new Map());
+    const counts = brandCountsByDomain.get(host);
+    counts.set(brand, Math.max(1000, counts.get(brand) || 0));
+  }
+
   function brandHintFor(host) {
     const counts = brandCountsByDomain.get(host);
     if (!counts || !counts.size) return "";
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
   }
 
-  const since = kind === "patterns" ? state.lastPatternRun : state.lastYarnRun;
-  const allCandidates = [];
+  const since = fullRun ? null : (kind === "patterns" ? state.lastPatternRun : state.lastYarnRun);
+  const allCandidates = [...seedLinks.urls];
 
   for (const [host, domainUrls] of byDomain) {
+    if (fullRun && kind === "patterns" && /garnstudio\.com$/i.test(host)) continue;
     const origin = `https://${host}`;
     const pages = await discoverSitemapPages(origin);
     if (!pages.length) continue;
@@ -610,13 +1081,15 @@ async function crawl(kind, existing, state) {
     const hints = pathHints(domainUrls, kind);
     const selected = pages
       .filter((page) => candidatePage(page, hints, since, knownUrls))
-      .slice(0, kind === "patterns" ? 400 : 600);
+      .slice(0, fullRun
+        ? (kind === "patterns" ? (/garnstudio\.com$/i.test(host) ? 15000 : 4000) : 2000)
+        : (kind === "patterns" ? 500 : 700));
 
     for (const page of selected) allCandidates.push(page.url);
   }
 
   const unique = [...new Set(allCandidates)]
-    .slice(0, kind === "patterns" ? 800 : 500);
+    .slice(0, fullRun ? (kind === "patterns" ? 30000 : 6000) : (kind === "patterns" ? 1200 : 800));
 
   // Keep requests bounded but parallel enough that a scheduled update cannot
   // spend hours waiting on one slow manufacturer at a time.
@@ -627,11 +1100,17 @@ async function crawl(kind, existing, state) {
     const finalUrl = res.url || url;
     const brandHint = brandHintFor(domainOf(finalUrl));
     return kind === "patterns"
-      ? extractPattern(finalUrl, res.text, brandHint)
+      ? extractPatternsFromPage(finalUrl, res.text, brandHint, referenceYarns)
       : extractYarn(finalUrl, res.text, brandHint);
   });
 
-  return { found: discovered.filter(Boolean), discoveredUrls: unique };
+  const flatDiscovered = kind === "patterns"
+    ? discovered.flatMap((value) => Array.isArray(value) ? value : (value ? [value] : []))
+    : discovered.filter(Boolean);
+  return {
+    found: [...dropsIndex.found, ...seedLinks.directRecords, ...flatDiscovered],
+    discoveredUrls: [...new Set([...dropsIndex.urls, ...unique, ...seedLinks.urls])]
+  };
 }
 
 async function auditDiscontinued(existingYarns, autoYarns, state, changes) {
@@ -660,7 +1139,7 @@ async function auditDiscontinued(existingYarns, autoYarns, state, changes) {
     } else if (res.ok) {
       missing[url] = 0;
       const plain = stripHtml(res.text).slice(0, 20000);
-      explicit = /(discontinued|no longer (?:made|available|produced))/i.test(plain);
+      explicit = /\b(discontinued|no longer (?:made|available|produced))\b/i.test(plain);
     }
 
     return { url, yarn, explicit };
@@ -726,7 +1205,8 @@ if (mode === "patterns" || mode === "both") {
   const existing = flattenPatterns(win);
   const autoExisting = Array.isArray(win.AUTO_PATTERN_CATALOG) ? win.AUTO_PATTERN_CATALOG : [];
 
-  const { found, discoveredUrls } = await crawl("patterns", existing, state);
+  const referenceYarns = flattenYarns(win);
+  const { found, discoveredUrls } = await crawl("patterns", existing, state, referenceYarns);
   const autoPatterns = mergeNew(existing.filter((p) => !p.autoImported), autoExisting, found, patternKey, changes.patterns);
 
   await fs.writeFile(
@@ -773,6 +1253,7 @@ await fs.writeFile("catalog-auto-changes.js", changeJs);
 
 console.log(JSON.stringify({
   mode,
+  fullRun,
   patternChanges: changes.patterns,
   yarnChanges: changes.yarns
 }, null, 2));

@@ -33,6 +33,9 @@
   const kfiCrochetDesignIds = new Set((window.KFI_CROCHET_DESIGN_IDS || []).map(String));
 
   function canonicalBrand(brand) {
+    if (window.GARN_SWATCH_AUDIT && typeof window.GARN_SWATCH_AUDIT.canonicalBrand === "function") {
+      return window.GARN_SWATCH_AUDIT.canonicalBrand(brand);
+    }
     return brandAliases.get(normalizedKey(brand)) || brand;
   }
 
@@ -63,8 +66,25 @@
   }
 
   function canonicalYarnKey(value) {
-    const [brand, ...nameParts] = String(value || "").split("|");
-    return nameParts.length ? `${canonicalBrand(brand)}|${nameParts.join("|")}` : value;
+    const raw = String(value || "");
+    if (window.GARN_SWATCH_AUDIT && typeof window.GARN_SWATCH_AUDIT.yarnIdentity === "function") {
+      const [brand, ...nameParts] = raw.split("|");
+      if (nameParts.length) {
+        const key = window.GARN_SWATCH_AUDIT.yarnIdentity(raw);
+        const match = (window.GARN_SWATCH_AUDIT_YARNS || []).find((yarn) => window.GARN_SWATCH_AUDIT.yarnIdentity(yarn) === key);
+        return match ? `${match.brand}|${match.name}` : `${canonicalBrand(brand)}|${nameParts.join("|")}`;
+      }
+    }
+    const [brand, ...nameParts] = raw.split("|");
+    return nameParts.length ? `${canonicalBrand(brand)}|${nameParts.join("|")}` : raw;
+  }
+
+  function sameYarnReference(reference, yarn) {
+    if (!reference || !yarn) return false;
+    if (window.GARN_SWATCH_AUDIT && typeof window.GARN_SWATCH_AUDIT.yarnIdentity === "function") {
+      return window.GARN_SWATCH_AUDIT.yarnIdentity(reference) === window.GARN_SWATCH_AUDIT.yarnIdentity(yarn);
+    }
+    return canonicalYarnKey(reference) === `${canonicalBrand(yarn.brand)}|${yarn.name}`;
   }
 
   function yarnImageQuality(value) {
@@ -82,6 +102,23 @@
     return yarnImageQuality(b) > yarnImageQuality(a) ? b : (a || b);
   }
 
+  function yarnPutups() {
+    const seen = new Map();
+    for (const item of arguments) {
+      if (!item) continue;
+      const candidates = Array.isArray(item.putups) && item.putups.length ? item.putups : [item];
+      for (const candidate of candidates) {
+        const grams = Number(candidate.grams) || null;
+        const yards = Number(candidate.yards) || null;
+        const meters = Number(candidate.meters) || null;
+        if (!grams && !yards && !meters) continue;
+        const key = `${grams || 0}|${yards || 0}|${meters || 0}`;
+        if (!seen.has(key)) seen.set(key, { grams, yards, meters, ounces: candidate.ounces || null, sourceUrl: candidate.sourceUrl || item.sourceUrl || "" });
+      }
+    }
+    return [...seen.values()];
+  }
+
   function dedupeYarns(items) {
     const merged = new Map();
     items.forEach((item) => {
@@ -89,7 +126,7 @@
       const key = `${normalizedKey(incoming.brand)}|${normalizedKey(incoming.name)}`;
       const existing = merged.get(key);
       if (!existing) {
-        merged.set(key, incoming);
+        merged.set(key, { ...incoming, putups: yarnPutups(incoming) });
         return;
       }
       merged.set(key, {
@@ -100,6 +137,7 @@
         knitGauge: existing.knitGauge || incoming.knitGauge,
         crochetGauge: existing.crochetGauge || incoming.crochetGauge,
         sourceUrl: existing.sourceUrl || incoming.sourceUrl,
+        putups: yarnPutups(existing, incoming),
         discontinued: Boolean(existing.discontinued || incoming.discontinued),
         status: (existing.discontinued || incoming.discontinued)
           ? "Discontinued"
@@ -116,7 +154,11 @@
     if (kfiMatch) return `kfi:${kfiMatch[1]}`;
     const ravelryMatch = String(pattern.ravelryUrl || pattern.url || "").match(/ravelry\.com\/patterns\/library\/([^/?#]+)/i);
     if (ravelryMatch) return `ravelry:${normalizedKey(ravelryMatch[1])}`;
-    return `pattern:${canonicalPatternTitle(pattern.name)}|${normalizedKey(pattern.designer)}|${normalizedKey(pattern.craft)}`;
+    const titleKey = canonicalPatternTitle(pattern.name);
+    const sourceToken = normalizedKey(pattern.patternUrl || pattern.url || pattern.sourceUrl || pattern.pdfUrl || "");
+    return genericPatternTitle(titleKey) && sourceToken
+      ? `pattern:${titleKey}|${normalizedKey(pattern.designer)}|${normalizedKey(pattern.craft)}|${sourceToken}`
+      : `pattern:${titleKey}|${normalizedKey(pattern.designer)}|${normalizedKey(pattern.craft)}`;
   }
 
   function dedupePatterns(items) {
@@ -143,8 +185,6 @@
     });
     return [...merged.values()];
   }
-
-  const strictFamilyBrands = new Set(["Kelbourne Woolens","BC Garn","Navia","Kremke","Hey Mama Wolf"]);
 
   const yarns = dedupeYarns([
     ...(window.YARN_CATALOG || []),
@@ -205,6 +245,11 @@
         ...pattern,
         usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
         brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
+      })),
+      ...(window.GARN_SWATCH_AUDIT_PATTERNS || []).map((pattern) => ({
+        ...pattern,
+        usedYarns: (pattern.usedYarns || []).map(canonicalYarnKey),
+        brands: (pattern.brands || [pattern.sourceBrand]).filter(Boolean).map(canonicalBrand)
       }))
     ];
 
@@ -235,7 +280,11 @@
     if (pattern.craft === "knit" || pattern.craft === "crochet") return pattern.craft;
     if (kfiCrochetDesignIds.has(String(pattern.kfiDesignId || ""))) return "crochet";
     const title = normalizedKey(pattern.name);
-    return /\b(crochet|crocheted|granny|amigurumi)\b/.test(title) ? "crochet" : "knit";
+    if (/\b(crochet|crocheted|granny|amigurumi)\b/.test(title)) return "crochet";
+    if (/\b(knit|knitting|knitted)\b/.test(title)) return "knit";
+    // Unknown craft stays unknown. Do not silently put an unverified pattern in
+    // the knitting results merely because no crochet keyword was found.
+    return "unknown";
   }
 
   function inferredPatternProject(pattern) {
@@ -259,11 +308,24 @@
   function patternLibraryKey(pattern) {
     const associations = (pattern.usedYarns || []).length ? pattern.usedYarns : (pattern.brands || []);
     const signature = associations.map(normalizedKey).sort().join(";");
-    return `${canonicalPatternTitle(pattern.name)}|${signature}|${inferredPatternCraft(pattern)}`;
+    const titleKey = canonicalPatternTitle(pattern.name);
+    const sourceToken = normalizedKey(pattern.patternUrl || pattern.url || pattern.sourceUrl || pattern.pdfUrl || "");
+    return genericPatternTitle(titleKey) && sourceToken
+      ? `${titleKey}|${signature}|${inferredPatternCraft(pattern)}|${sourceToken}`
+      : `${titleKey}|${signature}|${inferredPatternCraft(pattern)}`;
   }
 
   function patternDetailScore(pattern) {
-    return Number(Number.isFinite(pattern.gauge)) + Number(Boolean(pattern.project)) + Number(Boolean(pattern.designer));
+    const structuredGauge = Number.isFinite(pattern.gauge) || (pattern.gauge && typeof pattern.gauge === "object" && Number.isFinite(Number(pattern.gauge.stitches ?? pattern.gauge.stitchCount)));
+    const url = String(pattern.patternUrl || pattern.url || pattern.ravelryUrl || "");
+    const exactUrl = Boolean(url) && !genericCollectionUrl(url);
+    return Number(structuredGauge) * 4
+      + Number(Boolean(pattern.project))
+      + Number(Boolean(pattern.designer))
+      + Math.min(3, (pattern.usedYarns || []).length) * 2
+      + Number(exactUrl) * 2
+      + Number(Boolean(pattern.skillLevel))
+      + Number(Boolean(pattern.sizesText));
   }
 
   function mergePatternRecords(existing, incoming) {
@@ -304,7 +366,10 @@
       const overlapIndex = group.findIndex((existing) => {
         const existingYarns = new Set(existing.usedYarns || []);
         const yarnOverlap = [...incomingYarns].some((yarnKey) => existingYarns.has(yarnKey));
-        if (yarnOverlap) return true;
+        // Generic titles such as “Hat” or “Scarf” are not identities. Two
+        // different designs may use the same yarn, so yarn overlap alone must
+        // never collapse them.
+        if (yarnOverlap) return !genericPatternTitle(canonicalTitle);
 
         // Official-site and Ravelry copies often differ only by a trailing
         // “Pattern”, punctuation, or which source supplied the image/link.
@@ -425,23 +490,48 @@
       ? `<a href="${escapeHtml(direct)}" target="_blank" rel="noopener">View on Ravelry →</a>`
       : "";
   }
+  function genericCollectionUrl(url) {
+    try {
+      const parsed = new URL(String(url || ""), "https://example.invalid");
+      const path = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+      if (!path || path === "/") return true;
+      if (/\/(?:collections?|search|pattern-finder)(?:\/|$)/i.test(path)) return true;
+      if (/\/(?:patterns?|designs?)$/i.test(path)) return true;
+      const last = path.split("/").filter(Boolean).pop() || "";
+      if ([
+        "knitting-patterns", "crochet-patterns", "4-ply-knitting-patterns",
+        "double-knit-knitting-patterns", "dk-knitting-patterns", "chunky-knitting-patterns"
+      ].includes(last)) return true;
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  function customerDesigner(pattern) {
+    const raw = String(pattern && pattern.designer || "").trim();
+    const hidden = new Set([
+      "knitting fever", "knitting fever inc", "knitting fever collection",
+      "kfi collection", "kfi novelty", "euroyarns", "euro yarns", "yarnspirations"
+    ]);
+    return hidden.has(normalizedKey(raw)) ? "" : raw;
+  }
+
   function patternPrimaryUrl(pattern) {
-    return String((pattern && (
-      pattern.url ||
-      pattern.patternUrl ||
-      pattern.sourceUrl ||
-      pattern.ravelryUrl
-    )) || "");
+    if (!pattern) return "";
+    const candidates = [pattern.patternUrl, pattern.url, pattern.pdfUrl, pattern.ravelryUrl, pattern.sourceUrl]
+      .filter(Boolean).map(String);
+    // Never label a collection/homepage as the pattern itself. If the catalog
+    // only knows a collection page, omit the primary button until the importer
+    // discovers the exact design URL.
+    return candidates.find((url) => !genericCollectionUrl(url)) || "";
   }
 
   function yarnPrimaryUrl(yarn) {
-    return String((yarn && (
-      yarn.sourceUrl ||
-      yarn.productUrl ||
-      yarn.imagePage ||
-      yarn.url ||
-      yarn.ravelryUrl
-    )) || "");
+    if (!yarn) return "";
+    const candidates = [yarn.productUrl, yarn.sourceUrl, yarn.imagePage, yarn.url, yarn.ravelryUrl].filter(Boolean).map(String);
+    const exact = candidates.find((url) => !genericCollectionUrl(url));
+    return exact || candidates[0] || "";
   }
   function escapeHtml(value) {
     return String(value)
@@ -456,10 +546,82 @@
     return [...new Set(yarns.map((yarn) => yarn.brand))].sort((a, b) => a.localeCompare(b));
   }
 
-  function currentYarn() {
-    const brand = $("brandSelect").value;
-    const name = $("yarnSelect").value;
+  function baseYarnFor(brandId, yarnId) {
+    const brandSelect = $(brandId);
+    const yarnSelect = $(yarnId);
+    if (!brandSelect || !yarnSelect) return yarns[0];
+    const brand = brandSelect.value;
+    const name = yarnSelect.value;
     return yarns.find((yarn) => yarn.brand === brand && yarn.name === name) || yarns[0];
+  }
+
+  function selectedBaseYarn() {
+    return baseYarnFor("brandSelect", "yarnSelect");
+  }
+
+  function selectedSecondBaseYarn() {
+    return baseYarnFor("secondBrandSelect", "secondYarnSelect");
+  }
+
+  function yarnWithSelectedPutup(yarn, selectId) {
+    if (!yarn) return yarn;
+    const putups = yarnPutups(yarn);
+    const select = $(selectId);
+    const index = select && !select.disabled ? Number(select.value) : 0;
+    const putup = putups[index] || putups[0];
+    return putup ? { ...yarn, ...putup, putups } : yarn;
+  }
+
+  function currentYarn() {
+    return yarnWithSelectedPutup(selectedBaseYarn(), "putupSelect");
+  }
+
+  function currentSecondYarn() {
+    return yarnWithSelectedPutup(selectedSecondBaseYarn(), "secondPutupSelect");
+  }
+
+  function usingHeldTogether() {
+    if (typeof document === "undefined") return false;
+    const control = $("holdTogether");
+    return Boolean(control && control.checked);
+  }
+
+  function selectedYarns() {
+    const first = currentYarn();
+    if (!usingHeldTogether()) return [first];
+    const second = currentSecondYarn();
+    return second ? [first, second] : [first];
+  }
+
+  function combinedSwatchGauge() {
+    if (typeof document === "undefined" || !usingHeldTogether()) return null;
+    const value = Number($("combinedGauge")?.value || 0);
+    return Number.isFinite(value) && value > 0 ? [value, value] : null;
+  }
+
+  function populatePutupControl(yarn, fieldId, selectId) {
+    const field = $(fieldId);
+    const select = $(selectId);
+    if (!field || !select || !yarn) return;
+    const putups = yarnPutups(yarn);
+    field.hidden = putups.length <= 1;
+    select.disabled = putups.length <= 1;
+    select.innerHTML = putups.map((putup, index) => {
+      const parts = [];
+      if (putup.grams) parts.push(`${putup.grams} g`);
+      if (putup.yards) parts.push(`${putup.yards} yd`);
+      else if (putup.meters) parts.push(`${putup.meters} m`);
+      return `<option value="${index}">${escapeHtml(parts.join(" / ") || `Put-up ${index + 1}`)}</option>`;
+    }).join("");
+    select.value = "0";
+  }
+
+  function populatePutups() {
+    populatePutupControl(selectedBaseYarn(), "putupField", "putupSelect");
+  }
+
+  function populateSecondPutups() {
+    populatePutupControl(selectedSecondBaseYarn(), "secondPutupField", "secondPutupSelect");
   }
 
   function skeinsOnHand() {
@@ -480,38 +642,63 @@
     return Math.ceil((yardsNeeded * (1 + buffer)) / yarn.yards);
   }
 
-  function populateBrands() {
-    $("brandSelect").innerHTML = brands()
+  function populateBrandSelect(selectId) {
+    const select = $(selectId);
+    if (!select) return;
+    select.innerHTML = brands()
       .map((brand) => `<option value="${escapeHtml(brand)}">${escapeHtml(brand)}</option>`)
       .join("");
   }
 
-  function populateYarns(preferredName) {
-    const brand = $("brandSelect").value;
+  function populateBrands() {
+    populateBrandSelect("brandSelect");
+    populateBrandSelect("secondBrandSelect");
+  }
+
+  function populateYarnSelect(brandId, yarnId, preferredName) {
+    const brandSelect = $(brandId);
+    const yarnSelect = $(yarnId);
+    if (!brandSelect || !yarnSelect) return;
+    const brand = brandSelect.value;
     const brandYarns = yarns
       .filter((yarn) => yarn.brand === brand)
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    $("yarnSelect").innerHTML = brandYarns
+    yarnSelect.innerHTML = brandYarns
       .map((yarn) => `<option value="${escapeHtml(yarn.name)}">${escapeHtml(yarn.name)}</option>`)
       .join("");
 
     if (preferredName && brandYarns.some((yarn) => yarn.name === preferredName)) {
-      $("yarnSelect").value = preferredName;
+      yarnSelect.value = preferredName;
     }
   }
 
-  function renderMeta() {
-    const yarn = currentYarn();
-    const gauge = state.craft === "knit" ? yarn.knitGauge : yarn.crochetGauge;
-    const gaugeText = gauge
-      ? `${gauge[0]}${gauge[1] !== gauge[0] ? `–${gauge[1]}` : ""} sts / 4 in`
-      : "Gauge not published";
+  function populateYarns(preferredName) {
+    populateYarnSelect("brandSelect", "yarnSelect", preferredName);
+  }
 
-    $("yarnMeta").innerHTML = `<div class="selected-yarn-card">
+  function populateSecondYarns(preferredName) {
+    populateYarnSelect("secondBrandSelect", "secondYarnSelect", preferredName);
+  }
+
+  function gaugeTextForYarn(yarn) {
+    const gauge = state.craft === "knit" ? yarn?.knitGauge : yarn?.crochetGauge;
+    const estimated = state.craft === "knit" ? yarn?.knitGaugeEstimated : yarn?.crochetGaugeEstimated;
+    if (!Array.isArray(gauge) || gauge.length < 2) return "Gauge not published";
+    const rowGauge = state.craft === "knit"
+      ? (yarn?.knitRowGauge || yarn?.rowGauge)
+      : yarn?.crochetRowGauge;
+    const rowText = Array.isArray(rowGauge) && rowGauge.length >= 2
+      ? ` / ${rowGauge[0]}${rowGauge[1] !== rowGauge[0] ? `–${rowGauge[1]}` : ""} rows`
+      : "";
+    return `${gauge[0]}${gauge[1] !== gauge[0] ? `–${gauge[1]}` : ""} sts${rowText} / 4 in${estimated ? " (weight-category guide)" : ""}`;
+  }
+
+  function yarnCard(yarn, label, includeEstimateTarget = false) {
+    return `<div class="selected-yarn-card">
       ${yarnMedia(yarn, "selected-yarn-image")}
       <div class="selected-yarn-copy">
-        <div class="kicker">Selected yarn</div>
+        <div class="kicker">${escapeHtml(label)}</div>
         <h3>${escapeHtml(yarn.brand)} · ${escapeHtml(yarn.name)}</h3>
         <div class="selected-yarn-pills">
           ${[
@@ -523,28 +710,60 @@
             yarn.fiber
           ].filter(Boolean).map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}
         </div>
-        <div class="selected-yarn-estimates" id="selectedYarnEstimates"></div>
+        ${includeEstimateTarget ? '<div class="selected-yarn-estimates" id="selectedYarnEstimates"></div>' : ""}
       </div>
     </div>`;
+  }
+
+  function renderMeta() {
+    const selected = selectedYarns();
+    const yarn = selected[0];
+    const second = selected[1] || null;
+    const held = Boolean(second);
+    const swatch = combinedSwatchGauge();
+
+    $("secondYarnFields").hidden = !usingHeldTogether();
+
+    $("yarnMeta").innerHTML = held
+      ? `${yarnCard(yarn, "First yarn", true)}${yarnCard(second, "Second yarn", false)}`
+      : yarnCard(yarn, "Selected yarn", true);
 
     const craftLabel = state.craft === "crochet" ? "Crochet" : "Knitting";
     const toolName = state.craft === "crochet" ? "Hook" : "Needles";
-    $("matchBasis").innerHTML = `<strong>${craftLabel} match details</strong>
-      <span><b>Yarn weight:</b> ${escapeHtml(yarn.weight)}</span>
-      <span><b>Yarn gauge:</b> ${escapeHtml(gaugeText)}</span>
-      <span><b>${toolName}:</b> ${escapeHtml(recommendedToolLabel(yarn))}</span>`;
+    if (held) {
+      const swatchLabel = swatch ? `${swatch[0]} sts / 4 in` : "Not entered — exact two-yarn patterns still rank first; substitution matches stay cautious";
+      $("matchBasis").innerHTML = `<strong>${craftLabel} held-together match details</strong>
+        <span><b>First yarn:</b> ${escapeHtml(yarn.weight || "Weight not published")} · ${escapeHtml(gaugeTextForYarn(yarn))}</span>
+        <span><b>Second yarn:</b> ${escapeHtml(second.weight || "Weight not published")} · ${escapeHtml(gaugeTextForYarn(second))}</span>
+        <span><b>Combined swatch gauge:</b> ${escapeHtml(swatchLabel)}</span>
+        <span><b>${toolName}:</b> Follow the finished pattern or your swatch; individual ball-band tool sizes are not a combined-yarn gauge.</span>`;
+    } else {
+      $("matchBasis").innerHTML = `<strong>${craftLabel} match details</strong>
+        <span><b>Yarn weight:</b> ${escapeHtml(yarn.weight)}</span>
+        <span><b>Yarn gauge:</b> ${escapeHtml(gaugeTextForYarn(yarn))}</span>
+        <span><b>${toolName}:</b> ${escapeHtml(recommendedToolLabel(yarn))}</span>`;
+    }
 
     const skeins = skeinsOnHand();
-    $("availableYards").textContent = Number.isFinite(yarn.yards) && yarn.yards > 0
-      ? `${skeins} skein${skeins === 1 ? "" : "s"} = about ${formatNumber(skeins * yarn.yards)} yards on hand.`
-      : `${skeins} skein${skeins === 1 ? "" : "s"} selected. Skein yardage is still being verified.`;
+    if (held) {
+      const firstLength = Number.isFinite(yarn.yards) && yarn.yards > 0 ? `${formatNumber(skeins * yarn.yards)} yd of ${yarn.name}` : `${skeins} skein(s) of ${yarn.name}`;
+      const secondLength = Number.isFinite(second.yards) && second.yards > 0 ? `${formatNumber(skeins * second.yards)} yd of ${second.name}` : `${skeins} skein(s) of ${second.name}`;
+      $("availableYards").textContent = `${firstLength} + ${secondLength}, worked one strand of each together.`;
+    } else {
+      $("availableYards").textContent = Number.isFinite(yarn.yards) && yarn.yards > 0
+        ? `${skeins} skein${skeins === 1 ? "" : "s"} = about ${formatNumber(skeins * yarn.yards)} yards on hand.`
+        : `${skeins} skein${skeins === 1 ? "" : "s"} selected. Skein yardage is still being verified.`;
+    }
   }
 
-    function renderProjects() {
+  function renderProjects() {
     if ($("projectCards")) $("projectCards").hidden = true;
-    const yarn = currentYarn();
+    const selected = selectedYarns();
+    const yarn = selected[0];
+    const second = selected[1] || null;
+    const held = Boolean(second);
     const ranges = baseRanges[yarn.weight] || baseRanges.Worsted;
-    const isNovelty = yarn.weight === "Novelty";
+    const isNovelty = yarn.weight === "Novelty" || (second && second.weight === "Novelty");
     const multiplier = craftMultiplier();
     const estimateTarget = $("selectedYarnEstimates") || $("projectCards");
 
@@ -552,7 +771,45 @@
       estimateTarget.innerHTML = `
         <div class="skein-estimates">
           <h3>Yarn Skein Estimates</h3>
-          <p>Novelty yarns are pattern-specific.</p>
+          <p>Novelty yarns are pattern-specific. Use the exact pattern yardage rather than a generic project estimate.</p>
+        </div>`;
+      return;
+    }
+
+    if (held) {
+      const sameYarn = sameYarnReference(`${second.brand}|${second.name}`, yarn);
+      if (!Number.isFinite(yarn.yards) || yarn.yards <= 0 || !Number.isFinite(second.yards) || second.yards <= 0) {
+        estimateTarget.innerHTML = `
+          <div class="skein-estimates">
+            <h3>Yarn Skein Estimates</h3>
+            <p>Held-together skein estimates will appear once both yarns have verified skein yardage.</p>
+          </div>`;
+        return;
+      }
+
+      const rows = Object.entries(ranges).map(([project, range]) => {
+        const minYards = Math.round(range[0] * multiplier);
+        const maxYards = Math.round(range[1] * multiplier);
+        let label;
+        if (sameYarn) {
+          const minSkeins = Math.ceil((minYards * 2) / yarn.yards);
+          const maxSkeins = Math.ceil((maxYards * 2) / yarn.yards);
+          label = `${minSkeins}${maxSkeins !== minSkeins ? `–${maxSkeins}` : ""} total skeins of ${yarn.name}`;
+        } else {
+          const firstMin = Math.ceil(minYards / yarn.yards);
+          const firstMax = Math.ceil(maxYards / yarn.yards);
+          const secondMin = Math.ceil(minYards / second.yards);
+          const secondMax = Math.ceil(maxYards / second.yards);
+          label = `${firstMin}${firstMax !== firstMin ? `–${firstMax}` : ""} ${yarn.name} + ${secondMin}${secondMax !== secondMin ? `–${secondMax}` : ""} ${second.name}`;
+        }
+        return `<div class="skein-estimate-row"><strong>${escapeHtml(project)}</strong><div class="skein-project-list"><span class="skein-project">${escapeHtml(label)}</span></div></div>`;
+      }).join("");
+
+      estimateTarget.innerHTML = `
+        <div class="skein-estimates">
+          <h3>Yarn Skein Estimates</h3>
+          <p class="helper">Held-together estimates assume one strand of each yarn is worked throughout. The final pattern's size-specific yardage wins.</p>
+          ${rows}
         </div>`;
       return;
     }
@@ -577,10 +834,7 @@
         ? `${minSkeins} skein${minSkeins === 1 ? "" : "s"}`
         : `${minSkeins}–${maxSkeins} skeins`;
 
-      if (!groups.has(label)) {
-        groups.set(label, { minSkeins, maxSkeins, projects: [] });
-      }
-
+      if (!groups.has(label)) groups.set(label, { minSkeins, maxSkeins, projects: [] });
       groups.get(label).projects.push(project);
     });
 
@@ -590,48 +844,36 @@
         <div class="skein-estimate-row">
           <strong>${label}</strong>
           <div class="skein-project-list">
-            ${group.projects.map((project) => `
-              <span class="skein-project">
-                ${escapeHtml(project)}
-              </span>
-            `).join("")}
+            ${group.projects.map((project) => `<span class="skein-project">${escapeHtml(project)}</span>`).join("")}
           </div>
         </div>
       `).join("");
 
-      estimateTarget.innerHTML = `
+    estimateTarget.innerHTML = `
       <div class="skein-estimates">
         <h3>Yarn Skein Estimates</h3>
         ${rows}
       </div>`;
-
-
   }
+
   function patternScore(pattern, yarn) {
     const yarnKey = `${yarn.brand}|${yarn.name}`;
-    const exact = Array.isArray(pattern.usedYarns) && pattern.usedYarns.includes(yarnKey);
-    let score = exact ? 100 : 0;
-    if (pattern.weight === yarn.weight) score += 30;
-    if (pattern.weight === "Any") score += 20;
-
-    const gauge = state.craft === "knit" ? yarn.knitGauge : yarn.crochetGauge;
-    if (gauge && pattern.gauge && pattern.gauge >= gauge[0] - 2 && pattern.gauge <= gauge[1] + 2) score += 10;
-    if (skeinsOnHand() * yarn.yards >= pattern.minYards) score += 5;
-    return { exact, score };
+    const exact = Array.isArray(pattern.usedYarns) && pattern.usedYarns.some((reference) => sameYarnReference(reference, yarn));
+    const ranked = rankedPatternMatch({
+      ...pattern,
+      inferredProject: pattern.inferredProject || pattern.project || inferredPatternProject(pattern)
+    }, yarn);
+    // Quantity is intentionally kept out of technical compatibility.
+    return { exact, ...ranked };
   }
 
   function imageRetryUrl(item, kind) {
     const current = String(item && item.image || "");
     if (!current || /^\/api\/yarn-image\?/i.test(current)) return "";
 
-    const page = String((item && (
-      item.productUrl ||
-      item.imagePage ||
-      item.sourceUrl ||
-      item.imageSourceUrl ||
-      item.url ||
-      item.patternUrl ||
-      item.ravelryUrl
+    const page = String((item && (kind === "pattern"
+      ? (item.patternUrl || item.url || item.ravelryUrl || item.productUrl || item.imagePage || item.sourceUrl || item.imageSourceUrl)
+      : (item.productUrl || item.sourceUrl || item.imagePage || item.imageSourceUrl || item.url || item.ravelryUrl)
     )) || "");
     const name = String((item && (item.name || item.displayName || item.title)) || "");
     if (!/^https?:\/\//i.test(page) || !name) return "";
@@ -674,7 +916,7 @@
     return patterns
       .filter((pattern) => pattern.craft === state.craft && pattern.project === state.project)
       .map((pattern) => ({ ...pattern, ...patternScore(pattern, yarn) }))
-      .filter((pattern) => pattern.exact || pattern.weight === yarn.weight || pattern.weight === "Any")
+      .filter((pattern) => pattern.exact || pattern.score > 0)
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
       .slice(0, 8);
   }
@@ -682,7 +924,7 @@
   function uniqueKfiPatternsForYarn(yarnKey) {
     const byTitle = new Map();
     kfiPatternIndex
-      .filter((pattern) => pattern.usedYarns.includes(yarnKey))
+      .filter((pattern) => (pattern.usedYarns || []).some((reference) => sameYarnReference(reference, yarn)))
       .forEach((pattern) => {
         const key = normalizedKey(pattern.name);
         const existing = byTitle.get(key);
@@ -724,10 +966,16 @@
       const availability = enough
         ? "Your amount may work for at least one listed size."
         : `You may need ${additionalSkeins} more skein${additionalSkeins === 1 ? "" : "s"}.`;
-      const label = pattern.weight === "Any" ? "Flexible-weight option" : "Compatible by weight";
+      const label = pattern.gaugeMatch && pattern.weightMatch
+        ? "Strong compatibility"
+        : pattern.gaugeMatch
+        ? "Gauge-compatible option"
+        : pattern.weightMatch
+        ? "Weight-compatible option"
+        : "Possible substitute";
       const patternLinks = [];
       if (pattern.url) {
-        patternLinks.push(`<a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">${pattern.ravelryUrl ? "Official pattern" : `View on ${escapeHtml(pattern.sourceBrand || "pattern site")}`} →</a>`);
+        patternLinks.push(`<a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">${pattern.ravelryUrl ? "Official pattern" : "View pattern"} →</a>`);
       }
       if (pattern.ravelryUrl) {
         patternLinks.push(`<a href="${escapeHtml(pattern.ravelryUrl)}" target="_blank" rel="noopener">View on Ravelry →</a>`);
@@ -738,8 +986,8 @@
         <div class="pattern-body">
           <div class="match compatible">${label}</div>
           <h3>${escapeHtml(pattern.name)}</h3>
-          <p>${escapeHtml(pattern.designer)} · ${escapeHtml(pattern.project)} · ${escapeHtml(pattern.weight)}${pattern.gauge ? ` · ${pattern.gauge} sts / 4 in` : ""}<br>
-          ${formatNumber(pattern.minYards)}–${formatNumber(pattern.maxYards)} yd · ${pattern.free ? "Free pattern" : "Pattern listing"}<br>${escapeHtml(availability)}</p>
+          <p>${customerDesigner(pattern) ? `${escapeHtml(customerDesigner(pattern))} · ` : ""}${escapeHtml(pattern.project)} · ${escapeHtml(pattern.weight)}${pattern.gauge ? ` · ${pattern.gauge} sts / 4 in` : ""}<br>
+          ${formatNumber(pattern.minYards)}–${formatNumber(pattern.maxYards)} yd · ${pattern.free ? "Free pattern" : "Pattern listing"}<br>${escapeHtml(pattern.reason)}<br>${escapeHtml(availability)}</p>
           <div class="pattern-links">${patternLinks.join("")}</div>
         </div>
       </article>`;
@@ -785,9 +1033,9 @@
         <div class="pattern-body">
           <div class="match">Pattern uses this yarn</div>
           <h3>${escapeHtml(pattern.name)}</h3>
-          <p>Official Knitting Fever design · Exact yarn pairing. Yardage, sizing, and craft details are on the pattern page.</p>
+          <p>Official pattern · Exact yarn pairing. Yardage, sizing, and craft details are on the pattern page.</p>
           <div class="pattern-links">
-            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View on Knitting Fever →</a>
+            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View pattern →</a>
             ${ravelryPatternLink(pattern)}
           </div>
         </div>
@@ -833,9 +1081,9 @@
         <div class="pattern-body">
           <div class="match compatible">From this brand's pattern library</div>
           <h3>${escapeHtml(pattern.name)}</h3>
-          <p>Official Knitting Fever design. This pattern may use a different yarn from the same brand, so check the pattern page before substituting.</p>
+          <p>Official pattern. This design may use a different yarn from the same brand, so check the pattern page before substituting.</p>
           <div class="pattern-links">
-            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View on Knitting Fever →</a>
+            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View pattern →</a>
             ${ravelryPatternLink(pattern)}
           </div>
         </div>
@@ -855,12 +1103,17 @@
   }
 
   function renderBuyEstimate() {
-    const yarn = currentYarn();
-    if (yarn.weight === "Novelty") {
+    const selected = selectedYarns();
+    const yarn = selected[0];
+    const second = selected[1] || null;
+    const held = Boolean(second);
+
+    if (yarn.weight === "Novelty" || (second && second.weight === "Novelty")) {
       $("buyAnswer").textContent = "Use exact pattern";
-      $("buyDetails").textContent = `${yarn.name} has no standard yarn-weight estimate. Open an official design above and follow its listed yardage.`;
+      $("buyDetails").textContent = "Novelty yarns and held-together novelty combinations are pattern-specific. Follow the exact pattern yardage.";
       return;
     }
+
     const project = $("buyProject").value || state.project;
     const size = $("size").value || "M";
     const buffer = Number($("buffer").value || 0);
@@ -868,16 +1121,43 @@
     const range = ranges[project] || [300, 600];
     const sizeFactor = project === "Sweater" || project === "Baby" ? (sizeFactors[size] || 1) : 1;
     const midpoint = ((range[0] + range[1]) / 2) * sizeFactor * craftMultiplier();
-    const skeins = skeinCount(midpoint, yarn, buffer);
+    const bufferedYards = midpoint * (1 + buffer);
 
+    if (held) {
+      const sameYarn = sameYarnReference(`${second.brand}|${second.name}`, yarn);
+      if (sameYarn) {
+        const totalSkeins = skeinCount(midpoint * 2, yarn, buffer);
+        if (totalSkeins === null) {
+          $("buyAnswer").textContent = "Check skein yardage";
+          $("buyDetails").textContent = `About ${formatNumber(bufferedYards)} yards per strand (${formatNumber(bufferedYards * 2)} total yards) are needed for two strands of ${yarn.name}.`;
+          return;
+        }
+        $("buyAnswer").textContent = `${totalSkeins} total skein${totalSkeins === 1 ? "" : "s"}`;
+        $("buyDetails").textContent = `About ${formatNumber(bufferedYards)} yards per strand, using two strands of ${yarn.name} together (${yarn.yards} yd per skein).`;
+        return;
+      }
+
+      const firstSkeins = skeinCount(midpoint, yarn, buffer);
+      const secondSkeins = skeinCount(midpoint, second, buffer);
+      if (firstSkeins === null || secondSkeins === null) {
+        $("buyAnswer").textContent = "Check skein yardage";
+        $("buyDetails").textContent = `About ${formatNumber(bufferedYards)} yards of each yarn are needed when one strand of each is held together. One or both skein yardages are still being verified.`;
+        return;
+      }
+      $("buyAnswer").textContent = `${firstSkeins} + ${secondSkeins} skeins`;
+      $("buyDetails").textContent = `${firstSkeins} skein${firstSkeins === 1 ? "" : "s"} of ${yarn.name} + ${secondSkeins} skein${secondSkeins === 1 ? "" : "s"} of ${second.name}, about ${formatNumber(bufferedYards)} yards of each including ${Math.round(buffer * 100)}% extra.`;
+      return;
+    }
+
+    const skeins = skeinCount(midpoint, yarn, buffer);
     if (skeins === null) {
       $("buyAnswer").textContent = "Check skein yardage";
-      $("buyDetails").textContent = `About ${formatNumber(midpoint * (1 + buffer))} yards including ${Math.round(buffer * 100)}% extra. This yarn's skein yardage is still being verified.`;
+      $("buyDetails").textContent = `About ${formatNumber(bufferedYards)} yards including ${Math.round(buffer * 100)}% extra. This yarn's skein yardage is still being verified.`;
       return;
     }
 
     $("buyAnswer").textContent = `${skeins} skein${skeins === 1 ? "" : "s"}`;
-    $("buyDetails").textContent = `About ${formatNumber(midpoint * (1 + buffer))} yards including ${Math.round(buffer * 100)}% extra, using ${yarn.name} (${yarn.yards} yd each).`;
+    $("buyDetails").textContent = `About ${formatNumber(bufferedYards)} yards including ${Math.round(buffer * 100)}% extra, using ${yarn.name} (${yarn.yards} yd each).`;
   }
 
   function renderCatalog() {
@@ -933,25 +1213,47 @@
 
   function patternWeightLabel(pattern) {
     if (pattern.weight === "Any") return "Any yarn weight";
-    const weights = patternWeights(pattern);
-    return weights.length ? weights.join(", ") : "Not published";
+    if (pattern.weight) return String(pattern.weight);
+    const inferred = new Set();
+    (pattern.usedYarns || []).forEach((yarnKey) => {
+      const matchedYarn = yarnByKey.get(yarnKey);
+      if (matchedYarn?.weight) inferred.add(matchedYarn.weight);
+    });
+    return inferred.size ? `${[...inferred].join(", ")} (inferred from listed yarn)` : "Not published";
   }
 
   function recommendedToolLabel(yarn) {
     const published = state.craft === "crochet" ? yarn?.hookSize : yarn?.needleSize;
-    return published || toolRecommendations[yarn.weight]?.[state.craft] || "Check the yarn label and pattern";
+    const estimated = state.craft === "crochet" ? yarn?.hookSizeEstimated : yarn?.needleSizeEstimated;
+    if (published) return estimated ? `${published} (weight-category guide)` : published;
+    const guide = toolRecommendations[yarn.weight]?.[state.craft];
+    return guide ? `${guide} (weight-category guide)` : "Check the yarn label and pattern";
   }
 
   function yarnGaugeRange(yarn) {
-    const gauge = state.craft === "crochet" ? yarn?.crochetGauge : yarn?.knitGauge;
+    if (!yarn) return null;
+    const estimated = state.craft === "crochet" ? yarn.crochetGaugeEstimated : yarn.knitGaugeEstimated;
+    // Weight-category/CYC estimates are useful guidance, but they are not
+    // manufacturer-published yarn gauge and must not strengthen match scores.
+    if (estimated) return null;
+    const gauge = state.craft === "crochet" ? yarn.crochetGauge : yarn.knitGauge;
     return Array.isArray(gauge) && gauge.length >= 2 && gauge.every(Number.isFinite) ? gauge : null;
   }
 
   function patternGaugeRanges(pattern) {
+    // A yarn's ball-band gauge is not the pattern gauge. If the design's
+    // actual gauge is unknown, keep it unknown rather than manufacturing one
+    // from the yarn(s) named by the pattern.
     if (Number.isFinite(pattern.gauge)) return [[pattern.gauge, pattern.gauge]];
-    return (pattern.usedYarns || [])
-      .map((yarnKey) => yarnGaugeRange(yarnByKey.get(yarnKey)))
-      .filter(Boolean);
+    if (pattern.gauge && typeof pattern.gauge === "object") {
+      const stitchCount = Number(pattern.gauge.stitches ?? pattern.gauge.stitchCount);
+      const measurement = Number(pattern.gauge.measurement ?? pattern.gauge.inches ?? 4);
+      if (Number.isFinite(stitchCount) && stitchCount > 0 && Number.isFinite(measurement) && measurement > 0) {
+        const normalized = stitchCount * (4 / measurement);
+        return [[normalized, normalized]];
+      }
+    }
+    return [];
   }
 
   function formatGaugeRange(range) {
@@ -964,73 +1266,277 @@
     if (!ranges.length) return "Not published";
     const minimum = Math.min(...ranges.map((range) => range[0]));
     const maximum = Math.max(...ranges.map((range) => range[1]));
-    return `${minimum}${maximum !== minimum ? `–${maximum}` : ""} sts / 4 in`;
+    let rowText = "";
+    if (pattern.gauge && typeof pattern.gauge === "object") {
+      const rows = Number(pattern.gauge.rows ?? pattern.gauge.rowCount);
+      const measurement = Number(pattern.gauge.measurement ?? pattern.gauge.inches ?? 4);
+      if (Number.isFinite(rows) && rows > 0 && Number.isFinite(measurement) && measurement > 0) {
+        const normalizedRows = Math.round((rows * (4 / measurement)) * 10) / 10;
+        rowText = ` / ${normalizedRows} rows`;
+      }
+    }
+    return `${minimum}${maximum !== minimum ? `–${maximum}` : ""} sts${rowText} / 4 in`;
   }
 
   function gaugeRangesOverlap(first, second) {
     return Boolean(first && second && first[0] <= second[1] && second[0] <= first[1]);
   }
 
-  function gaugeCompatibilityPoints(pattern, yarn) {
-    const selectedRange = yarnGaugeRange(yarn);
-    const ranges = patternGaugeRanges(pattern);
-    if (!selectedRange || !ranges.length) return 0;
-    const selectedMidpoint = (selectedRange[0] + selectedRange[1]) / 2;
-    return Math.max(...ranges.map((range) => {
-      const midpoint = (range[0] + range[1]) / 2;
-      const centerCloseness = Math.max(0, 1 - Math.abs(midpoint - selectedMidpoint) / Math.max(1, selectedMidpoint));
-      if (gaugeRangesOverlap(range, selectedRange)) return 50 + Math.round(centerCloseness * 15);
-      const gap = range[0] > selectedRange[1] ? range[0] - selectedRange[1] : selectedRange[0] - range[1];
-      const nearCloseness = Math.max(0, 1 - gap / Math.max(4, selectedMidpoint * 0.5));
-      return Math.round(nearCloseness * 49);
-    }));
+  function gaugeCompatibility(patternRange, yarnRange) {
+    if (!patternRange || !yarnRange) return { points: 0, level: "unknown", overlap: 0, percentDiff: null };
+
+    const patternMid = (patternRange[0] + patternRange[1]) / 2;
+    const yarnMid = (yarnRange[0] + yarnRange[1]) / 2;
+    const percentDiff = Math.abs(patternMid - yarnMid) / Math.max(1, yarnMid);
+
+    const overlapStart = Math.max(patternRange[0], yarnRange[0]);
+    const overlapEnd = Math.min(patternRange[1], yarnRange[1]);
+    const overlapWidth = Math.max(0, overlapEnd - overlapStart);
+    const smallestWidth = Math.max(1, Math.min(patternRange[1] - patternRange[0], yarnRange[1] - yarnRange[0]));
+    const overlap = overlapWidth / smallestWidth;
+
+    // A one-stitch boundary touch is not a strong gauge match.
+    if (percentDiff <= 0.05 && (overlap >= 0.5 || patternRange[0] === patternRange[1] || yarnRange[0] === yarnRange[1])) {
+      return { points: 65, level: "exact", overlap, percentDiff };
+    }
+    if (percentDiff <= 0.10) {
+      return { points: 52, level: "close", overlap, percentDiff };
+    }
+    if (percentDiff <= 0.15) {
+      return { points: 34, level: "caution", overlap, percentDiff };
+    }
+    if (percentDiff <= 0.22) {
+      return { points: 14, level: "poor", overlap, percentDiff };
+    }
+    return { points: 0, level: "poor", overlap, percentDiff };
   }
 
-  function weightCompatibilityPoints(pattern, yarn) {
-    if (pattern.weight === "Any") return 20;
+  function selectionYarns(value) {
+    if (Array.isArray(value)) return value.filter(Boolean);
+    if (value && Array.isArray(value.yarns)) return value.yarns.filter(Boolean);
+    return value ? [value] : [];
+  }
+
+  function patternHeldTogether(pattern) {
+    return Number(pattern?.strandCount || pattern?.strands || 0) > 1 || pattern?.heldTogether === true ||
+      /(?:held|hold|holding)\s+(?:two|2|three|3|four|4)?\s*(?:strands?|yarns?)?\s*together/i.test(String(pattern?.gaugeText || pattern?.notes || pattern?.description || ""));
+  }
+
+  function selectionRelationship(pattern, yarnSelection) {
+    const chosen = selectionYarns(yarnSelection);
+    const refs = pattern?.usedYarns || [];
+    if (!chosen.length) return { exact: false, allListed: false, heldConfirmed: false };
+
+    const allListed = chosen.every((yarn) => refs.some((ref) => sameYarnReference(ref, yarn)));
+    if (chosen.length === 1) return { exact: allListed, allListed, heldConfirmed: false };
+
+    const sameYarnTwice = chosen.length === 2 && sameYarnReference(`${chosen[1].brand}|${chosen[1].name}`, chosen[0]);
+    const heldConfirmed = patternHeldTogether(pattern);
+    const strandCount = Number(pattern?.strandCount || pattern?.strands || 0);
+    const enoughStrands = !sameYarnTwice || strandCount >= 2;
+    return { exact: allListed && heldConfirmed && enoughStrands, allListed, heldConfirmed };
+  }
+
+  function selectedGaugeRange(yarnSelection) {
+    const chosen = selectionYarns(yarnSelection);
+    if (chosen.length > 1) return combinedSwatchGauge();
+    return yarnGaugeRange(chosen[0]);
+  }
+
+  function gaugeCompatibilityPoints(pattern, yarnSelection) {
+    const selectedRange = selectedGaugeRange(yarnSelection);
+    const ranges = patternGaugeRanges(pattern);
+    if (!selectedRange || !ranges.length) return 0;
+    return Math.max(...ranges.map((range) => gaugeCompatibility(range, selectedRange).points));
+  }
+
+  function weightCompatibilityPoints(pattern, yarnSelection) {
+    const chosen = selectionYarns(yarnSelection);
+    if (!chosen.length) return 0;
+    // Two-yarn thickness is not the sum of two ball-band labels. Without a
+    // finished swatch, do not award technical compatibility from individual
+    // yarn-weight categories. Exact held-together relationships are handled
+    // separately and a user-entered combined gauge supplies substitution evidence.
+    if (chosen.length > 1) return 0;
+
+    const yarn = chosen[0];
+    if (pattern.weight === "Any") return 18;
     const weightOrder = new Map([
       ["Lace", 0], ["Fingering", 1], ["Sport", 2], ["DK", 3],
-      ["Worsted", 4], ["Aran", 4], ["Bulky", 5], ["Super Bulky", 6], ["Jumbo", 7]
+      ["Worsted", 4], ["Aran", 4.35], ["Bulky", 5], ["Super Bulky", 6], ["Jumbo", 7]
     ]);
-    const yarnFamilies = weightFamilies(yarn.weight);
-    const patternFamilies = patternWeights(pattern).flatMap(weightFamilies);
-    if (patternFamilies.some((weight) => yarnFamilies.includes(weight))) return 30;
+    const selected = String(yarn.weight || "");
+    const published = pattern.weight ? [pattern.weight] : [];
+    const inferred = pattern.weight ? [] : (pattern.usedYarns || []).map((yarnKey) => yarnByKey.get(yarnKey)?.weight).filter(Boolean);
+    const candidates = published.length ? published : [...new Set(inferred)];
+    const fullSame = published.length ? 30 : 20;
+    const fullFamily = published.length ? 24 : 16;
+    const adjacent = published.length ? 12 : 8;
+    if (candidates.includes(selected)) return fullSame;
+
+    const yarnFamilies = weightFamilies(selected);
+    const patternFamilies = candidates.flatMap(weightFamilies);
+    if (patternFamilies.some((weight) => yarnFamilies.includes(weight))) return fullFamily;
+
     const distances = patternFamilies.flatMap((patternWeight) => yarnFamilies.map((yarnWeight) => {
       const patternLevel = weightOrder.get(patternWeight);
       const yarnLevel = weightOrder.get(yarnWeight);
       return Number.isFinite(patternLevel) && Number.isFinite(yarnLevel) ? Math.abs(patternLevel - yarnLevel) : Infinity;
     }));
-    return distances.length && Math.min(...distances) === 1 ? 15 : 0;
+    const distance = distances.length ? Math.min(...distances) : Infinity;
+    if (distance <= 1) return adjacent;
+    return 0;
+  }
+
+  function fiberConstructionTags(yarn) {
+    const text = normalizedKey([
+      yarn && yarn.fiber,
+      yarn && yarn.construction,
+      yarn && yarn.structure,
+      yarn && yarn.name
+    ].filter(Boolean).join(" "));
+    const tags = new Set();
+    if (/\b(mohair|suri)\b/.test(text)) tags.add("halo");
+    if (/\bboucle\b/.test(text)) tags.add("boucle");
+    if (/\b(chainette|chain)\b/.test(text)) tags.add("chainette");
+    if (/\b(blown|air blown|airblown)\b/.test(text)) tags.add("blown");
+    if (/\b(ribbon|tape)\b/.test(text)) tags.add("ribbon");
+    if (/\b(linen|flax)\b/.test(text)) tags.add("linen");
+    if (/\bcotton\b/.test(text)) tags.add("cotton");
+    if (/\balpaca\b/.test(text)) tags.add("alpaca");
+    if (/\bsuperwash\b/.test(text)) tags.add("superwash");
+    if (/\b(wool|merino|lambswool|corriedale|shetland)\b/.test(text)) tags.add("wool");
+    if (/\b(acrylic|polyamide|nylon|polyester)\b/.test(text)) tags.add("synthetic");
+    return tags;
+  }
+
+  function fiberSubstitutionCaution(pattern, yarnSelection) {
+    const chosen = selectionYarns(yarnSelection);
+    const relationship = selectionRelationship(pattern, chosen);
+    // If the source names the selected yarn(s), construction is already part of
+    // the designer's intended fabric and must not reduce an exact relationship.
+    if (!chosen.length || relationship.allListed) return { penalty: 0, caution: "" };
+
+    const targetYarns = (pattern.usedYarns || [])
+      .map((ref) => yarnByKey.get(canonicalYarnKey(ref)))
+      .filter(Boolean);
+    if (!targetYarns.length) return { penalty: 0, caution: "" };
+
+    const selectedTags = new Set(chosen.flatMap((yarn) => [...fiberConstructionTags(yarn)]));
+    const targetTags = new Set(targetYarns.flatMap((yarn) => [...fiberConstructionTags(yarn)]));
+    if (!selectedTags.size || !targetTags.size) return { penalty: 0, caution: "" };
+
+    const structural = ["halo", "boucle", "chainette", "blown", "ribbon"];
+    const missingStructure = structural.filter((tag) => targetTags.has(tag) && !selectedTags.has(tag));
+    if (missingStructure.length) {
+      return {
+        penalty: 15,
+        caution: `The original yarn has a different construction (${missingStructure.join(", ")}), so fabric behavior may differ even if gauge matches.`
+      };
+    }
+
+    const targetPlant = targetTags.has("cotton") || targetTags.has("linen");
+    const selectedPlant = selectedTags.has("cotton") || selectedTags.has("linen");
+    const targetAnimal = targetTags.has("wool") || targetTags.has("alpaca") || targetTags.has("halo");
+    const selectedAnimal = selectedTags.has("wool") || selectedTags.has("alpaca") || selectedTags.has("halo");
+    if ((targetPlant && selectedAnimal && !selectedPlant) || (selectedPlant && targetAnimal && !targetPlant)) {
+      return {
+        penalty: 8,
+        caution: "The fiber family differs from the yarn used by the pattern, so drape, elasticity, and finished fabric may change."
+      };
+    }
+
+    if (targetTags.has("alpaca") !== selectedTags.has("alpaca")) {
+      return {
+        penalty: 4,
+        caution: "Alpaca content differs from the pattern yarn; check drape and elasticity in your swatch."
+      };
+    }
+
+    return { penalty: 0, caution: "" };
   }
 
   function rankBand(score) {
     return score >= 80 ? "high" : score >= 40 ? "medium" : "low";
   }
 
-  function rankedPatternMatch(pattern, yarn) {
-    const yarnKey = `${yarn.brand}|${yarn.name}`;
-    const exact = (pattern.usedYarns || []).includes(yarnKey);
-    const selectedYarnGauge = yarnGaugeRange(yarn);
-    const gaugeMatch = patternGaugeRanges(pattern).some((range) => gaugeRangesOverlap(range, selectedYarnGauge));
-    const yarnWeights = new Set(weightFamilies(yarn.weight));
-    const weightMatch = pattern.weight === "Any" || patternWeights(pattern)
-      .flatMap(weightFamilies)
-      .some((weight) => yarnWeights.has(weight));
-    const gaugePoints = gaugeCompatibilityPoints(pattern, yarn);
-    const weightPoints = weightCompatibilityPoints(pattern, yarn);
-    const score = exact ? 100 : Math.min(99, gaugePoints + weightPoints);
-    const reason = exact
+  function rankedPatternMatch(pattern, yarnSelection) {
+    const chosen = selectionYarns(yarnSelection);
+    const yarn = chosen[0] || {};
+    const heldSelection = chosen.length > 1;
+    const relationship = selectionRelationship(pattern, chosen);
+    const selectedGauge = selectedGaugeRange(chosen);
+    const gaugeResults = patternGaugeRanges(pattern).map((range) => gaugeCompatibility(range, selectedGauge));
+    const bestGauge = gaugeResults.sort((a, b) => b.points - a.points)[0] || { points: 0, level: "unknown" };
+    const gaugeMatch = ["exact", "close"].includes(bestGauge.level);
+
+    let weightMatch = false;
+    if (!heldSelection) {
+      const yarnWeights = new Set(weightFamilies(yarn.weight));
+      weightMatch = pattern.weight === "Any" || patternWeights(pattern)
+        .flatMap(weightFamilies)
+        .some((weight) => yarnWeights.has(weight));
+    }
+
+    const gaugePoints = bestGauge.points;
+    const weightPoints = weightCompatibilityPoints(pattern, chosen);
+    const fiberCheck = fiberSubstitutionCaution(pattern, chosen);
+    let score;
+    if (relationship.exact) score = 100;
+    else if (heldSelection && relationship.allListed) {
+      // Both yarns are named by the design, but the source has not confirmed
+      // that they are physically held together. Keep it useful but not "exact".
+      score = Math.min(90, Math.max(70, gaugePoints));
+    } else if (heldSelection) {
+      // For a two-yarn substitution, only the finished swatch gauge is strong
+      // technical evidence. Individual ball-band gauges/weights are not added.
+      score = Math.min(99, gaugePoints);
+    } else {
+      score = Math.min(99, gaugePoints + weightPoints);
+    }
+    if (!relationship.allListed && fiberCheck.penalty) {
+      score = Math.max(0, score - fiberCheck.penalty);
+    }
+
+    const selectedNames = chosen.map((item) => item.name).filter(Boolean);
+    const baseReason = relationship.exact && heldSelection
+      ? `Written for ${selectedNames.join(" + ")} held together.`
+      : relationship.exact
       ? `Written for ${yarn.name}.`
-      : gaugeMatch && weightMatch
-      ? "Strong gauge and yarn-weight match. Make a swatch before substituting."
-      : gaugeMatch && !weightMatch
-      ? "Gauge overlaps, but the listed yarn weight does not match."
-      : weightMatch && !gaugeMatch
-      ? "Yarn weight matches; the score reflects the gauge difference or missing gauge."
+      : heldSelection && relationship.allListed
+      ? "The pattern lists both selected yarns, but the stored source does not confirm they are held together. Check the pattern instructions."
+      : heldSelection && !selectedGauge
+      ? "Enter the gauge from a swatch of the two yarns held together to rank substitution patterns. Exact held-together patterns still rank first."
+      : heldSelection && bestGauge.level === "exact"
+      ? "Your combined swatch gauge is very close to the published pattern gauge. Check fiber/fabric and swatch before substituting."
+      : heldSelection && bestGauge.level === "close"
+      ? "Your combined swatch gauge is close to the published pattern gauge. Swatch before substituting."
+      : heldSelection && bestGauge.level === "caution"
+      ? "Your combined swatch gauge is within a caution range; check fabric carefully."
+      : bestGauge.level === "exact" && weightMatch
+      ? "Very close published gauge and yarn-weight match. Swatch before substituting."
+      : bestGauge.level === "close" && weightMatch
+      ? "Close published gauge and yarn-weight match. Swatch before substituting."
+      : bestGauge.level === "caution"
+      ? "Gauge is within a caution range; check fabric and swatch before substituting."
+      : weightMatch && bestGauge.level === "unknown"
+      ? "Yarn weight matches, but the pattern or yarn gauge is not published/recorded."
+      : weightMatch
+      ? "Yarn weight matches, but the published gauge differs."
       : score > 0
-      ? "A partial gauge or neighboring-weight match; swatch carefully before substituting."
-      : "No confirmed gauge and yarn-weight match.";
-    return { score, reason, gaugeMatch, weightMatch, gaugePoints, weightPoints, projectMatch: pattern.inferredProject === state.project };
+      ? "A partial technical match; swatch carefully before substituting."
+      : "No confirmed technical match.";
+    const reason = fiberCheck.caution && !relationship.allListed
+      ? `${baseReason} ${fiberCheck.caution}`
+      : baseReason;
+
+    return {
+      score, reason, gaugeMatch, weightMatch, gaugePoints, weightPoints,
+      fiberPenalty: fiberCheck.penalty, fiberCaution: fiberCheck.caution,
+      gaugeLevel: bestGauge.level, projectMatch: pattern.inferredProject === state.project,
+      exact: relationship.exact, allSelectedYarnsListed: relationship.allListed,
+      heldTogetherSelection: heldSelection
+    };
   }
 
   const patternCatalogOrder = new Map(
@@ -1056,13 +1562,8 @@
       return Date.UTC(year, 0, 1);
     }
 
-    const numericId = Number(pattern.sourceId || pattern.kfiDesignId || pattern.designId || 0);
-    if (Number.isFinite(numericId) && numericId > 0) return numericId;
-
-    // For records without a published date or numeric design ID,
-    // preserve catalog order as a stable fallback.
-    const catalogIndex = patternCatalogOrder.get(patternIdentity(pattern));
-    return Number.isFinite(catalogIndex) ? catalogIndex : 0;
+    // Design IDs are identifiers, not publication dates.
+    return null;
   }
 
   function sortRankedPatterns(list) {
@@ -1076,26 +1577,32 @@
           || Number(b.projectMatch) - Number(a.projectMatch)
           || a.name.localeCompare(b.name);
       }
-      if (mode === "newest") {
-        return patternRecencyValue(b) - patternRecencyValue(a)
-          || a.name.localeCompare(b.name);
-      }
-      if (mode === "oldest") {
-        return patternRecencyValue(a) - patternRecencyValue(b)
-          || a.name.localeCompare(b.name);
+      if (mode === "newest" || mode === "oldest") {
+        const aDate = patternRecencyValue(a);
+        const bDate = patternRecencyValue(b);
+        if (aDate !== null && bDate !== null) {
+          return mode === "newest"
+            ? bDate - aDate || a.name.localeCompare(b.name)
+            : aDate - bDate || a.name.localeCompare(b.name);
+        }
+        if (aDate !== null) return -1;
+        if (bDate !== null) return 1;
+        const aIndex = patternCatalogOrder.get(patternIdentity(a)) ?? 0;
+        const bIndex = patternCatalogOrder.get(patternIdentity(b)) ?? 0;
+        return aIndex - bIndex || a.name.localeCompare(b.name);
       }
       return a.name.localeCompare(b.name);
     });
   }
 
   function renderRankedPatternLibrary() {
-    const yarn = currentYarn();
+    const selection = selectedYarns();
+    const yarn = selection[0];
+    const second = selection[1] || null;
+    const held = Boolean(second);
     const query = normalizedKey($("patternSearch").value);
     const filtered = rankedPatternCatalog
       .filter((pattern) => pattern.craft === state.craft)
-      // When the user types in Pattern Search, search the full pattern library
-      // for the selected craft instead of restricting results to the current yarn family.
-      .filter((pattern) => query || !strictFamilyBrands.has(yarn.brand) || (pattern.usedYarns || []).includes(canonicalYarnKey(`${yarn.brand}|${yarn.name}`)) || (pattern.brands || []).includes(yarn.brand) || pattern.sourceBrand === yarn.brand)
       .filter((pattern) => !query || normalizedKey([
           pattern.name,
           pattern.designer,
@@ -1106,7 +1613,7 @@
           ...(pattern.brands || []),
           ...(pattern.usedYarns || [])
         ].join(" ")).includes(query))
-      .map((pattern) => ({ ...pattern, ...rankedPatternMatch(pattern, yarn) }));
+      .map((pattern) => ({ ...pattern, ...rankedPatternMatch(pattern, selection) }));
     const sorted = sortRankedPatterns(filtered);
     const visible = sorted.slice(0, state.patternVisible);
 
@@ -1118,17 +1625,30 @@
         : (pattern.brands || []).length ? `Brand: ${(pattern.brands || []).join(", ")}` : "Yarn not listed";
       const craftLabel = state.craft === "crochet" ? "Crochet" : "Knitting";
       const gaugeLabel = patternGaugeLabel(pattern);
-      const yarnGaugeLabel = formatGaugeRange(yarnGaugeRange(yarn));
+      const selectedGauge = held ? combinedSwatchGauge() : yarnGaugeRange(yarn);
+      const yarnGaugeLabel = held
+        ? (selectedGauge ? `${formatGaugeRange(selectedGauge)} (combined swatch)` : "Combined swatch gauge not entered")
+        : formatGaugeRange(selectedGauge);
       const patternWeight = patternWeightLabel(pattern);
-      const toolLabel = pattern.toolSize || recommendedToolLabel(yarn);
-      const toolName = pattern.toolSize
+      const yarnWeightLabel = held
+        ? `${yarn.name}: ${yarn.weight || "not published"}; ${second.name}: ${second.weight || "not published"}`
+        : yarn.weight;
+      const toolLabel = pattern.toolSize || pattern.needleSize || pattern.hookSize || (held
+        ? "Use the pattern or combined swatch"
+        : recommendedToolLabel(yarn));
+      const toolName = (pattern.toolSize || pattern.needleSize || pattern.hookSize)
         ? (state.craft === "crochet" ? "Pattern hook" : "Pattern needles")
         : (state.craft === "crochet" ? "Suggested hook" : "Suggested needles");
       const primaryUrl = patternPrimaryUrl(pattern);
-      const primaryLabel = /knittingfever\.com/i.test(primaryUrl) ? "View on Knitting Fever" : "View pattern";
+      const primaryLabel = /\.pdf(?:[?#]|$)/i.test(primaryUrl)
+        ? "Open pattern PDF"
+        : "View pattern";
       const primaryLink = primaryUrl
         ? `<a href="${escapeHtml(primaryUrl)}" target="_blank" rel="noopener">${primaryLabel} →</a>`
         : "";
+      const sizesLabel = pattern.sizesText || pattern.sizes || pattern.sizeRange || "";
+      const skillLabel = pattern.skillLevel || pattern.difficulty || "";
+      const priceLabel = pattern.free === true ? "Free pattern" : pattern.free === false ? "Paid pattern" : "";
       return `<article class="pattern">
         ${patternMedia(pattern)}
         <div class="pattern-body">
@@ -1136,10 +1656,13 @@
           <h3>${escapeHtml(pattern.name)}</h3>
           <p>${craftLabel} · ${escapeHtml(pattern.inferredProject)}${pattern.projectMatch ? " · Selected project" : ""}<br>
           <strong>Pattern gauge:</strong> ${escapeHtml(gaugeLabel)}<br>
-          <strong>Yarn gauge:</strong> ${escapeHtml(yarnGaugeLabel)}<br>
+          <strong>${held ? "Combined yarn gauge" : "Yarn gauge"}:</strong> ${escapeHtml(yarnGaugeLabel)}<br>
           <strong>Pattern weight:</strong> ${escapeHtml(patternWeight)}<br>
-          <strong>Yarn weight:</strong> ${escapeHtml(yarn.weight)}<br>
+          <strong>${held ? "Selected yarns" : "Yarn weight"}:</strong> ${escapeHtml(yarnWeightLabel)}<br>
           <strong>${toolName}:</strong> ${escapeHtml(toolLabel)}<br>
+          ${sizesLabel ? `<strong>Sizes:</strong> ${escapeHtml(Array.isArray(sizesLabel) ? sizesLabel.join(", ") : sizesLabel)}<br>` : ""}
+          ${skillLabel ? `<strong>Skill level:</strong> ${escapeHtml(skillLabel)}<br>` : ""}
+          ${priceLabel ? `<strong>Pattern:</strong> ${escapeHtml(priceLabel)}<br>` : ""}
           ${escapeHtml(pattern.reason)}<br>${escapeHtml(details)}</p>
           <div class="pattern-links">
             ${primaryLink}
@@ -1152,8 +1675,9 @@
     const shown = Math.min(visible.length, sorted.length);
     const craftLabel = state.craft === "crochet" ? "crochet" : "knitting";
     const exactCount = sorted.filter((pattern) => pattern.score === 100).length;
+    const selectionLabel = held ? `${yarn.name} + ${second.name}` : yarn.name;
     $("allPatternCount").textContent = `${sorted.length.toLocaleString()} ${craftLabel} patterns`;
-    $("allPatternSummary").textContent = `Showing ${shown.toLocaleString()} of ${sorted.length.toLocaleString()} ${craftLabel} patterns ranked for ${yarn.name}. ${exactCount.toLocaleString()} exact ${exactCount === 1 ? "match" : "matches"}.`;
+    $("allPatternSummary").textContent = `Showing ${shown.toLocaleString()} of ${sorted.length.toLocaleString()} ${craftLabel} patterns ranked for ${selectionLabel}. ${exactCount.toLocaleString()} exact ${exactCount === 1 ? "match" : "matches"}.`;
     const more = $("showMorePatterns");
     more.hidden = shown >= sorted.length;
     more.textContent = `Show ${Math.min(24, sorted.length - shown).toLocaleString()} more patterns`;
@@ -1181,6 +1705,9 @@
     if (!yarns.length) return;
     populateBrands();
     populateYarns();
+    populatePutups();
+    populateSecondYarns();
+    populateSecondPutups();
     $("buyProject").innerHTML = Object.keys(baseRanges.Worsted).map((project) => `<option>${escapeHtml(project)}</option>`).join("");
     $("buyProject").value = state.project;
     renderCatalog();
@@ -1189,9 +1716,39 @@
     $("brandSelect").addEventListener("change", () => {
       state.patternVisible = 24;
       populateYarns();
+      populatePutups();
       renderAll();
     });
     $("yarnSelect").addEventListener("change", () => {
+      state.patternVisible = 24;
+      populatePutups();
+      renderAll();
+    });
+    if ($("putupSelect")) $("putupSelect").addEventListener("change", () => {
+      state.patternVisible = 24;
+      renderAll();
+    });
+    if ($("holdTogether")) $("holdTogether").addEventListener("change", () => {
+      state.patternVisible = 24;
+      $("secondYarnFields").hidden = !usingHeldTogether();
+      renderAll();
+    });
+    if ($("secondBrandSelect")) $("secondBrandSelect").addEventListener("change", () => {
+      state.patternVisible = 24;
+      populateSecondYarns();
+      populateSecondPutups();
+      renderAll();
+    });
+    if ($("secondYarnSelect")) $("secondYarnSelect").addEventListener("change", () => {
+      state.patternVisible = 24;
+      populateSecondPutups();
+      renderAll();
+    });
+    if ($("secondPutupSelect")) $("secondPutupSelect").addEventListener("change", () => {
+      state.patternVisible = 24;
+      renderAll();
+    });
+    if ($("combinedGauge")) $("combinedGauge").addEventListener("input", () => {
       state.patternVisible = 24;
       renderAll();
     });
@@ -1205,9 +1762,11 @@
     $("buyProject").addEventListener("change", renderBuyEstimate);
     $("size").addEventListener("change", renderBuyEstimate);
     $("buffer").addEventListener("change", renderBuyEstimate);
+    let patternSearchTimer = null;
     $("patternSearch").addEventListener("input", () => {
       state.patternVisible = 24;
-      renderRankedPatternLibrary();
+      if (patternSearchTimer) clearTimeout(patternSearchTimer);
+      patternSearchTimer = setTimeout(renderRankedPatternLibrary, 120);
     });
     $("patternSort").addEventListener("change", () => {
       state.patternSort = $("patternSort").value;
@@ -1224,8 +1783,15 @@
     });
   }
 
-  window.YarnFirst = { brands, baseRanges, patternScore, uniqueKfiPatternsForYarn, uniqueNoveltyBrandPatterns, allPatternCatalog, rankedPatternCatalog, canonicalPatternTitle, inferredPatternCraft, rankedPatternMatch, gaugeCompatibilityPoints, weightCompatibilityPoints, patternGaugeLabel, patternWeightLabel, recommendedToolLabel };
-  init();
+  window.YarnFirst = {
+    brands, baseRanges, patternScore, uniqueKfiPatternsForYarn, uniqueNoveltyBrandPatterns,
+    allPatternCatalog, rankedPatternCatalog, canonicalPatternTitle, inferredPatternCraft,
+    rankedPatternMatch, gaugeCompatibilityPoints, weightCompatibilityPoints, patternGaugeLabel,
+    patternWeightLabel, recommendedToolLabel, skeinCount, patternRecencyValue, sortRankedPatterns,
+    canonicalYarnKey, sameYarnReference, selectionRelationship, patternHeldTogether, selectedGaugeRange,
+    fiberConstructionTags, fiberSubstitutionCaution, genericCollectionUrl, patternPrimaryUrl, customerDesigner
+  };
+  if (typeof document !== "undefined") init();
 }());
 
 

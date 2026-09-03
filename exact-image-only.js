@@ -1,18 +1,8 @@
-// Garn Swatch — exact-image-only policy
-// Removes generic/fallback image URLs. Existing exact yarn images remain.
-// This intentionally does NOT invent or reuse a brand image for multiple yarns.
 (function () {
   "use strict";
-  const bad = /api\.microlink\.io/i;
-
-  Object.keys(window).forEach(function (key) {
-    const arr = window[key];
-    if (!Array.isArray(arr)) return;
-    arr.forEach(function (item) {
-      if (!item || typeof item !== "object") return;
-      if (item.image && bad.test(String(item.image))) {
-        delete item.image;
-      }
-    });
-  });
+  // Deprecated by the 2026-09-03 full audit. The active image pipeline is:
+  // yarn-image-catalog.js -> Koigu merge -> catalog integration/audit ->
+  // exact-yarn-images.js -> api/yarn-image.js.
+  // This file intentionally performs no runtime work.
+  window.GARN_SWATCH_DEPRECATED_IMAGE_FILES = [...(window.GARN_SWATCH_DEPRECATED_IMAGE_FILES || []), "exact-image-only.js"];
 })();

@@ -41,6 +41,38 @@
                 <label for="yarnSelect">Yarn variety</label>
                 <select id="yarnSelect"></select>
               </div>
+              <div class="field" id="putupField" hidden>
+                <label for="putupSelect">Skein / put-up</label>
+                <select id="putupSelect" disabled></select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="holdTogether">
+                <input id="holdTogether" type="checkbox"> Use two yarns held together
+              </label>
+            </div>
+
+            <div id="secondYarnFields" hidden>
+              <div class="row">
+                <div class="field">
+                  <label for="secondBrandSelect">Second brand</label>
+                  <select id="secondBrandSelect"></select>
+                </div>
+                <div class="field">
+                  <label for="secondYarnSelect">Second yarn variety</label>
+                  <select id="secondYarnSelect"></select>
+                </div>
+                <div class="field" id="secondPutupField" hidden>
+                  <label for="secondPutupSelect">Second skein / put-up</label>
+                  <select id="secondPutupSelect" disabled></select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="combinedGauge">Combined swatch gauge <span class="muted">(optional)</span></label>
+                <input id="combinedGauge" type="number" min="1" max="80" step="0.1" inputmode="decimal" placeholder="Stitches per 4 in / 10 cm">
+                <p class="helper">For substitution matches, a swatch gauge is more reliable than estimating the thickness of two yarns held together.</p>
+              </div>
             </div>
 
             <div id="yarnMeta" class="meta" aria-live="polite"></div>
@@ -162,6 +194,8 @@
 
   <script src="quince-family-catalog.js"></script>
   <script src="luca-s-catalog.js"></script>
+  <script src="lise-tailor-catalog.js"></script>
+  <script src="uk-alpaca-catalog.js"></script>
   <script src="vobelle-catalog.js"></script>
   <script src="atlantic-coast-catalog.js"></script>
   <script src="wollbiene-catalog.js"></script>
@@ -184,6 +218,7 @@
   <script src="auto-patterns.js"></script>
   <script src="catalog-auto-changes.js"></script>
   <script src="catalog-integration.js"></script>
+  <script src="catalog-audit-repair.js"></script>
   <script src="exact-yarn-images.js"></script>
   <script src="app.js"></script>
 </body>

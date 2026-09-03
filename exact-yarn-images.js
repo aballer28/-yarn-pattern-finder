@@ -104,14 +104,26 @@
     return false;
   }
 
-  function pageFor(item) {
+  function pageFor(item, kind) {
+    if (kind === "pattern") {
+      return (
+        item.patternUrl ||
+        item.url ||
+        item.ravelryUrl ||
+        item.productUrl ||
+        item.imagePage ||
+        item.sourceUrl ||
+        item.imageSourceUrl ||
+        ""
+      );
+    }
+
     return (
       item.productUrl ||
-      item.imagePage ||
       item.sourceUrl ||
+      item.imagePage ||
       item.imageSourceUrl ||
       item.url ||
-      item.patternUrl ||
       item.ravelryUrl ||
       ""
     );
@@ -147,13 +159,28 @@
     return "/api/yarn-image?" + params.toString();
   }
 
+  function genericCollectionPage(page) {
+    return /\/(?:collections?|patterns?|designs?|products?)\/?(?:[?#].*)?$/i.test(String(page || ""));
+  }
+
+  function imageHasNameEvidence(image, name) {
+    const hay = normalize(String(image || ""));
+    const tokens = normalize(name).split(" ").filter(function (token) { return token.length >= 4; });
+    if (!tokens.length) return false;
+    return tokens.filter(function (token) { return hay.indexOf(token) !== -1; }).length >= Math.max(1, Math.ceil(tokens.length / 2));
+  }
+
+  function trustedDirectImage(image) {
+    return /(?:ravelrycache\.com|knittingfever\.com|garnstudio\.com|squarespace-cdn\.com)/i.test(String(image || ""));
+  }
+
   function setExactImage(item, kind) {
     if (!item || typeof item !== "object") return;
 
     // Fix known problem brands first.
     if (exactSpecialCase(item)) return;
 
-    const page = pageFor(item);
+    const page = pageFor(item, kind);
     const name = item.name || item.displayName || item.title || "";
 
     // Yarn records often exist in more than one catalog. The curated
@@ -183,12 +210,28 @@
         }
       }
 
-      if (validImage(item.image)) return;
+      if (validImage(item.image)) {
+        // A generic collection page plus a generic-looking image is not proof
+        // that the picture depicts this exact yarn. Prefer a clean placeholder
+        // over a confidently wrong product photo.
+        if (genericCollectionPage(page) && !imageHasNameEvidence(item.image, name) && !trustedDirectImage(item.image)) {
+          delete item.image;
+        } else {
+          return;
+        }
+      }
     }
 
-    // Keep existing direct pattern images. They are numerous and already
-    // stable; only missing pattern images need the resolver.
-    if (validImage(item.image)) return;
+    // Direct pattern images remain trusted when their record points to an exact
+    // design page or the media source is a strong design archive. Collection-page
+    // thumbnails without name evidence are removed instead of being mislabeled.
+    if (validImage(item.image)) {
+      if (kind === "pattern" && genericCollectionPage(page) && !imageHasNameEvidence(item.image, name) && !trustedDirectImage(item.image)) {
+        delete item.image;
+      } else {
+        return;
+      }
+    }
 
     if (/api\.microlink\.io/i.test(String(item.image || ""))) {
       delete item.image;
@@ -493,6 +536,20 @@
     const other = preferred === a ? b : a;
 
     const merged = Object.assign({}, other, preferred);
+    const putupMap = new Map();
+    [a, b].forEach(function (record) {
+      const candidates = Array.isArray(record && record.putups) && record.putups.length ? record.putups : [record];
+      candidates.forEach(function (candidate) {
+        if (!candidate) return;
+        const grams = Number(candidate.grams) || null;
+        const yards = Number(candidate.yards) || null;
+        const meters = Number(candidate.meters) || null;
+        if (!grams && !yards && !meters) return;
+        const key = [grams || 0, yards || 0, meters || 0].join("|");
+        if (!putupMap.has(key)) putupMap.set(key, { grams: grams, yards: yards, meters: meters, ounces: candidate.ounces || null, sourceUrl: candidate.sourceUrl || record.sourceUrl || "" });
+      });
+    });
+    merged.putups = Array.from(putupMap.values());
 
     [
       "weight", "cycWeight", "yards", "meters", "grams", "fiber",
@@ -1044,6 +1101,18 @@
     const afterYarns = Array.isArray(window.YARN_CATALOG) ? window.YARN_CATALOG.length : 0;
     const afterPatterns = Array.isArray(window.PATTERN_CATALOG) ? window.PATTERN_CATALOG.length : 0;
 
+    function imageStats(items) {
+      return (items || []).reduce(function (stats, item) {
+        const image = String(item && item.image || "");
+        if (!image) stats.missing += 1;
+        else if (/^\/api\/yarn-image\?/i.test(image)) stats.resolver += 1;
+        else if (/^https?:\/\//i.test(image)) stats.direct += 1;
+        return stats;
+      }, { direct: 0, resolver: 0, missing: 0 });
+    }
+
+    // This reports catalog coverage only. It intentionally does NOT claim that
+    // every remote image has been HTTP/identity verified.
     window.GARN_SWATCH_SWEEP = {
       completed: true,
       yarnsBefore: beforeYarns,
@@ -1053,9 +1122,12 @@
       patternsAfter: afterPatterns,
       bernatExactPatternsAdded: BERNAT_PATTERN_FIXES.length,
       normalizedWeights: true,
-      filledGenericGaugeAndTools: true,
+      filledEstimatedWeightCategoryGaugeAndTools: true,
+      estimatedGaugeUsedAsPublishedEvidence: false,
       repairedUsedYarnAliases: true,
-      repairedImages: true
+      yarnImageCoverage: imageStats(window.YARN_CATALOG),
+      patternImageCoverage: imageStats(window.PATTERN_CATALOG),
+      imageIdentityVerified: false
     };
   }
 
