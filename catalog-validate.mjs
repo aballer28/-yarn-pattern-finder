@@ -34,12 +34,60 @@ for (const [key, list] of Object.entries(win)) {
   if (/YARN/i.test(key)) for (const x of list) if (isObj(x) && x.brand && x.name && !x.usedYarns) allYarns.push(x);
   if (/PATTERN|DESIGN/i.test(key)) for (const x of list) if (isObj(x) && x.name && (x.usedYarns || x.craft || x.designer || x.sourceBrand)) allPatterns.push(x);
 }
-const yarns = Array.isArray(win.GARN_SWATCH_AUDIT_YARNS) ? win.GARN_SWATCH_AUDIT_YARNS : allYarns;
-const patterns = [...allPatterns, ...(win.GARN_SWATCH_AUDIT_PATTERNS || [])];
+const auditYarns = Array.isArray(win.GARN_SWATCH_AUDIT_YARNS) ? win.GARN_SWATCH_AUDIT_YARNS : [];
+const auditPatterns = Array.isArray(win.GARN_SWATCH_AUDIT_PATTERNS) ? win.GARN_SWATCH_AUDIT_PATTERNS : [];
 
 const id = (y) => win.GARN_SWATCH_AUDIT?.yarnIdentity
   ? win.GARN_SWATCH_AUDIT.yarnIdentity(y)
   : `${norm(y.brand)}|${norm(y.name)}`;
+
+// Scan EVERY raw yarn array plus the normalized audit master. The old validator
+// preferred GARN_SWATCH_AUDIT_YARNS wholesale, which could hide thin records in
+// company-specific catalogs (for example DROPS or retailer/private-label yarns).
+const rawYarnRecordCount = allYarns.length;
+const yarnGroups = new Map();
+for (const y of [...allYarns, ...auditYarns]) {
+  const key = id(y);
+  const group = yarnGroups.get(key) || [];
+  group.push(y);
+  yarnGroups.set(key, group);
+}
+
+function present(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "number") return Number.isFinite(value) && value > 0;
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+function imageQuality(value) {
+  const s = String(value || "");
+  if (/^https?:\/\//i.test(s)) return 3;
+  if (/^\/api\/yarn-image\?/i.test(s)) return 2;
+  return s ? 1 : 0;
+}
+function combineYarnRecords(records) {
+  const out = { ...(records[0] || {}) };
+  for (const record of records.slice(1)) {
+    for (const [key, value] of Object.entries(record)) {
+      if (key === "image") {
+        if (imageQuality(value) > imageQuality(out.image)) out.image = value;
+        continue;
+      }
+      if (!present(out[key]) && present(value)) out[key] = value;
+    }
+    out.discontinued = Boolean(out.discontinued || record.discontinued);
+    if (/discontinued/i.test(String(record.status || ""))) out.status = "Discontinued";
+  }
+  out._sourceRecordCount = records.length;
+  return out;
+}
+const yarns = [...yarnGroups.values()].map(combineYarnRecords);
+
+const patternMap = new Map();
+for (const p of [...allPatterns, ...auditPatterns]) {
+  const key = [norm(p.name), norm(p.craft), norm(p.patternUrl || p.url || p.ravelryUrl || p.sourceUrl)].join("|");
+  if (!patternMap.has(key)) patternMap.set(key, p);
+}
+const patterns = [...patternMap.values()];
 const yarnIds = new Set(yarns.map(id));
 const genericRe = /\/(?:collections?|patterns?|designs?|products?)\/?(?:[?#].*)?$/i;
 const directRavelryRe = /^https:\/\/(?:www\.)?ravelry\.com\/patterns\/library\/[^/?#]+/i;
@@ -139,18 +187,46 @@ const directYarnImages = yarns.filter(y=>/^https?:\/\//i.test(String(y.image||""
 const directPatternImages = patterns.filter(p=>/^https?:\/\//i.test(String(p.image||""))).length;
 const resolverPatternImages = patterns.filter(p=>/^\/api\/yarn-image\?/i.test(String(p.image||""))).length;
 
+const genericYarnSourceRe = /\/(?:collections?|shop|search)(?:\/|$)|shop-all-yarn|shop-all-needlework|\/yarns?\/?(?:[?#].*)?$/i;
+const placeholderNameRe = /^(?:current example|legacy example|retailer catalog|all yarns?|any yarn)$/i;
+const companyAudit = {};
+for (const y of yarns) {
+  const brand = String(y.brand || "Unknown");
+  const row = companyAudit[brand] ||= {
+    yarns:0, missingImage:0, missingWeight:0, missingYardage:0, missingGrams:0,
+    missingFiber:0, missingPublishedGauge:0, missingDescription:0, genericSourceUrl:0,
+    placeholderLikeName:0
+  };
+  row.yarns += 1;
+  if (!y.image) row.missingImage += 1;
+  if (!y.weight) row.missingWeight += 1;
+  if (!(Number(y.yards)>0 || Number(y.meters)>0)) row.missingYardage += 1;
+  if (!(Number(y.grams)>0)) row.missingGrams += 1;
+  if (!y.fiber && !y.fiberFamily) row.missingFiber += 1;
+  if ((!y.knitGauge || y.knitGaugeEstimated) && (!y.crochetGauge || y.crochetGaugeEstimated)) row.missingPublishedGauge += 1;
+  if (!y.description && !y.notes) row.missingDescription += 1;
+  const source = String(y.productUrl || y.sourceUrl || y.imagePage || y.url || "");
+  if (source && genericYarnSourceRe.test(source)) row.genericSourceUrl += 1;
+  if (placeholderNameRe.test(String(y.name || "").trim())) row.placeholderLikeName += 1;
+}
+
 const report={
   generatedAt:new Date().toISOString(),
   status:"AUDIT_DIAGNOSTICS_GENERATED",
   scripts:{count:scripts.length,missing:missingScripts,loadErrors},
   yarns:{
-    count:yarns.length,current:current.length,discontinued:discontinued.length,
+    rawRecordCount:rawYarnRecordCount, count:yarns.length,current:current.length,discontinued:discontinued.length,
+    companyCount:Object.keys(companyAudit).length,
     unverifiedStatus:unverifiedStatus.map(y=>`${y.brand}|${y.name}`),
     missingWeight:yarns.filter(y=>!y.weight).map(y=>`${y.brand}|${y.name}`),
     missingYardage:yarns.filter(y=>!(Number(y.yards)>0||Number(y.meters)>0)).map(y=>`${y.brand}|${y.name}`),
     missingGrams:yarns.filter(y=>!(Number(y.grams)>0)).map(y=>`${y.brand}|${y.name}`),
     missingPublishedKnitGauge,missingPublishedCrochetGauge,
     missingImage:yarns.filter(y=>!y.image).map(y=>`${y.brand}|${y.name}`),
+    missingFiber:yarns.filter(y=>!y.fiber&&!y.fiberFamily).map(y=>`${y.brand}|${y.name}`),
+    missingDescription:yarns.filter(y=>!y.description&&!y.notes).map(y=>`${y.brand}|${y.name}`),
+    genericSourceUrl:yarns.filter(y=>genericYarnSourceRe.test(String(y.productUrl||y.sourceUrl||y.imagePage||y.url||""))).map(y=>`${y.brand}|${y.name}`),
+    placeholderLikeName:yarns.filter(y=>placeholderNameRe.test(String(y.name||"").trim())).map(y=>`${y.brand}|${y.name}`),
     imageSources:{direct:directYarnImages,resolver:resolverImages,placeholderEligible:yarns.length-directYarnImages-resolverImages},
     duplicateIdentities:[...duplicateMap.entries()].filter(([,a])=>a.length>1).map(([key,values])=>({
       key,count:values.length,putups:values.map(v=>({grams:v.grams||null,yards:v.yards||null,name:v.name}))
@@ -180,6 +256,7 @@ const report={
     heldTogetherProblems
   },
   zeroExactPatternYarns:[...zeroExact.entries()].filter(([,n])=>n===0).map(([k])=>k),
+  companyAudit,
   invalidRenderedValues,
   runtimeAuditDiagnostics:win.GARN_SWATCH_AUDIT?.diagnostics||null,
   regression

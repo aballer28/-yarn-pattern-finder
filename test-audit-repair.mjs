@@ -12,9 +12,9 @@ sandbox.window.LION_BRAND_LEGACY_YARN_FAMILIES=['Legacy Example'];
 sandbox.window.YARNSPIRATIONS_YARN_FAMILIES={Bernat:['Blanket']};
 sandbox.window.PATTERN_CATALOG=[{name:'Test Hat',craft:'knit',usedYarns:['Stone Wool|Cormo'],url:'https://example.com/pattern/test-hat'}];
 sandbox.window.UNEXPECTED_DESIGN_CATALOG=[{name:'Hidden Design',craft:'knit',usedYarns:['Test Brand|Old Yarn'],sourceBrand:'Test Brand',url:'https://example.com/pattern/hidden'}];
-vm.runInContext(await fs.readFile('/mnt/data/garn-complete-work/lise-tailor-catalog.js','utf8'),sandbox);
-vm.runInContext(await fs.readFile('/mnt/data/garn-complete-work/uk-alpaca-catalog.js','utf8'),sandbox);
-vm.runInContext(await fs.readFile('/mnt/data/garn-complete-work/catalog-audit-repair.js','utf8'),sandbox);
+vm.runInContext(await fs.readFile(new URL('./lise-tailor-catalog.js', import.meta.url),'utf8'),sandbox);
+vm.runInContext(await fs.readFile(new URL('./uk-alpaca-catalog.js', import.meta.url),'utf8'),sandbox);
+vm.runInContext(await fs.readFile(new URL('./catalog-audit-repair.js', import.meta.url),'utf8'),sandbox);
 const w=sandbox.window;
 const checks={
  cormo:w.YARN_CATALOG.some(y=>y.brand==='Quince & Co.'&&y.name==='Cormo'),

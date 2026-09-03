@@ -11,8 +11,8 @@ Object.assign(sandbox.window,{
   {name:'Hat',sourceBrand:'Test Designer',designer:'Test Designer',craft:'knit',usedYarns:['Quince & Co.|Cormo'],url:'https://example.com/pattern/hat-two'}
  ], PATTERN_CATALOG:[]
 });
-vm.runInContext(await fs.readFile('/mnt/data/garn-complete-work/catalog-audit-repair.js','utf8'),sandbox);
-vm.runInContext(await fs.readFile('/mnt/data/garn-complete-work/app.js','utf8'),sandbox);
+vm.runInContext(await fs.readFile(new URL('./catalog-audit-repair.js', import.meta.url),'utf8'),sandbox);
+vm.runInContext(await fs.readFile(new URL('./app.js', import.meta.url),'utf8'),sandbox);
 const yf=sandbox.window.YarnFirst;
 const tests={
  genericPatternsStaySeparate:yf.allPatternCatalog.filter(p=>p.name==='Hat').length===2,
