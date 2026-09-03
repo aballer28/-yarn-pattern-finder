@@ -79,12 +79,60 @@
     return nameParts.length ? `${canonicalBrand(brand)}|${nameParts.join("|")}` : raw;
   }
 
+  function localYarnIdentityParts(brand, name) {
+    let brandKey = normalizedKey(canonicalBrand(brand));
+    let nameKey = normalizedKey(name).replace(/\s+yarn$/, "");
+
+    const brandIdentityAliases = new Map([
+      ["queensland", "queensland collection"],
+      ["kfi collection", "knitting fever collection"],
+      ["kfi novelty", "knitting fever novelty"],
+      ["euroyarns novelty", "knitting fever novelty"],
+      ["istex", "lopi"],
+      ["lopi yarn", "lopi"],
+      ["peaches creme", "peaches and creme"],
+      ["lily sugar n cream", "lily sugar n cream"],
+      ["lily sugar and cream", "lily sugar n cream"],
+      ["aunt lydias", "aunt lydia s"],
+      ["bc garn by kremke", "bc garn"],
+      ["quince and co", "quince and co"],
+      ["quince co", "quince and co"]
+    ]);
+    brandKey = brandIdentityAliases.get(brandKey) || brandKey;
+
+    if (brandKey === "lise tailor") {
+      if (["merino", "merinos", "merino fingering", "fingering merino"].includes(nameKey)) nameKey = "fingering merino";
+      if (["merino silk", "silk merino", "merinos soie", "merino and silk"].includes(nameKey)) nameKey = "silk merino";
+      if (["mohair silk", "silk mohair", "mohair soie", "mohair and silk"].includes(nameKey)) nameKey = "silk mohair";
+    }
+    if (brandKey === "koigu" && ["corriedale gotland", "corriedale and gotland"].includes(nameKey)) {
+      nameKey = "corriedale gotland";
+    }
+    if (brandKey === "uk alpaca" && ["superfine alpaca 4 ply", "superfine 4 ply"].includes(nameKey)) {
+      nameKey = "superfine alpaca 4 ply";
+    }
+    if (nameKey === "cormo" && brandKey === "stone wool") brandKey = "quince and co";
+
+    return { brandKey, nameKey };
+  }
+
+  function localYarnIdentity(value) {
+    if (typeof value === "string") {
+      const [brand, ...nameParts] = value.split("|");
+      if (!nameParts.length) return normalizedKey(value);
+      const parts = localYarnIdentityParts(brand, nameParts.join("|"));
+      return `${parts.brandKey}|${parts.nameKey}`;
+    }
+    const parts = localYarnIdentityParts(value && value.brand, value && value.name);
+    return `${parts.brandKey}|${parts.nameKey}`;
+  }
+
   function sameYarnReference(reference, yarn) {
     if (!reference || !yarn) return false;
     if (window.GARN_SWATCH_AUDIT && typeof window.GARN_SWATCH_AUDIT.yarnIdentity === "function") {
       return window.GARN_SWATCH_AUDIT.yarnIdentity(reference) === window.GARN_SWATCH_AUDIT.yarnIdentity(yarn);
     }
-    return canonicalYarnKey(reference) === `${canonicalBrand(yarn.brand)}|${yarn.name}`;
+    return localYarnIdentity(reference) === localYarnIdentity(yarn);
   }
 
   function yarnImageQuality(value) {
@@ -274,7 +322,15 @@
   }
 
   const allPatternCatalog = buildMasterPatternCatalog();
-  const yarnByKey = new Map(yarns.map((yarn) => [`${yarn.brand}|${yarn.name}`, yarn]));
+  const yarnByKey = new Map();
+  yarns.forEach((yarn) => {
+    yarnByKey.set(`${yarn.brand}|${yarn.name}`, yarn);
+    yarnByKey.set(localYarnIdentity(yarn), yarn);
+  });
+
+  function yarnByReference(reference) {
+    return yarnByKey.get(reference) || yarnByKey.get(localYarnIdentity(reference));
+  }
 
   function inferredPatternCraft(pattern) {
     if (pattern.craft === "knit" || pattern.craft === "crochet") return pattern.craft;
@@ -1186,14 +1242,16 @@
     const weights = new Set();
     if (pattern.weight && pattern.weight !== "Any") weights.add(pattern.weight);
     (pattern.usedYarns || []).forEach((yarnKey) => {
-      const matchedYarn = yarnByKey.get(yarnKey);
+      const matchedYarn = yarnByReference(yarnKey);
       if (matchedYarn?.weight) weights.add(matchedYarn.weight);
     });
     return [...weights];
   }
 
   function weightFamilies(weight) {
-    const groups = {
+    const raw = String(weight || "");
+    const key = normalizedKey(raw);
+    const direct = {
       Lace: ["Lace"],
       "LACE / SUPER FINE": ["Lace", "Fingering"],
       Fingering: ["Fingering"],
@@ -1208,7 +1266,24 @@
       Jumbo: ["Jumbo"],
       Novelty: ["Novelty"]
     };
-    return groups[weight] || [weight];
+    if (direct[raw]) return direct[raw];
+
+    // Catalogs use many equivalent manufacturer labels. Normalize them for
+    // matching without changing what the customer sees on the yarn card.
+    if (/\bmedium\b/.test(key) && /\bbulky\b/.test(key)) return ["Worsted", "Aran", "Bulky"];
+    if (/\bbulky\b/.test(key) && /\bsuper bulky\b/.test(key)) return ["Bulky", "Super Bulky"];
+    if (/\blace\b/.test(key) && /\bsuper fine\b/.test(key)) return ["Lace", "Fingering"];
+    if (/\bjumbo\b|\bweight 7\b/.test(key)) return ["Jumbo"];
+    if (/\bsuper bulky\b|\bsuper chunky\b|\bweight 6\b/.test(key)) return ["Super Bulky"];
+    if (/\bbulky\b|\bchunky\b|\bweight 5\b/.test(key)) return ["Bulky"];
+    if (/\baran\b/.test(key)) return ["Worsted", "Aran"];
+    if (/\bworsted\b|\bmedium\b|\bweight 4\b/.test(key)) return ["Worsted", "Aran"];
+    if (/\bdk\b|\bdouble knit(?:ting)?\b|\blight 3\b|\bweight 3\b/.test(key)) return ["DK"];
+    if (/\bsport\b|\b5 ply\b|\bweight 2\b/.test(key)) return ["Sport"];
+    if (/\bfingering\b|\b4 ply\b|\bsock\b|\bsuper fine\b|\bweight 1\b/.test(key)) return ["Fingering"];
+    if (/\blace\b|\b2 ply\b|\bcobweb\b|\bweight 0\b/.test(key)) return ["Lace"];
+    if (/\bnovelty\b/.test(key)) return ["Novelty"];
+    return raw ? [raw] : [];
   }
 
   function patternWeightLabel(pattern) {
@@ -1216,7 +1291,7 @@
     if (pattern.weight) return String(pattern.weight);
     const inferred = new Set();
     (pattern.usedYarns || []).forEach((yarnKey) => {
-      const matchedYarn = yarnByKey.get(yarnKey);
+      const matchedYarn = yarnByReference(yarnKey);
       if (matchedYarn?.weight) inferred.add(matchedYarn.weight);
     });
     return inferred.size ? `${[...inferred].join(", ")} (inferred from listed yarn)` : "Not published";
@@ -1367,7 +1442,7 @@
     ]);
     const selected = String(yarn.weight || "");
     const published = pattern.weight ? [pattern.weight] : [];
-    const inferred = pattern.weight ? [] : (pattern.usedYarns || []).map((yarnKey) => yarnByKey.get(yarnKey)?.weight).filter(Boolean);
+    const inferred = pattern.weight ? [] : (pattern.usedYarns || []).map((yarnKey) => yarnByReference(yarnKey)?.weight).filter(Boolean);
     const candidates = published.length ? published : [...new Set(inferred)];
     const fullSame = published.length ? 30 : 20;
     const fullFamily = published.length ? 24 : 16;
@@ -1418,7 +1493,7 @@
     if (!chosen.length || relationship.allListed) return { penalty: 0, caution: "" };
 
     const targetYarns = (pattern.usedYarns || [])
-      .map((ref) => yarnByKey.get(canonicalYarnKey(ref)))
+      .map((ref) => yarnByReference(ref))
       .filter(Boolean);
     if (!targetYarns.length) return { penalty: 0, caution: "" };
 
@@ -1573,7 +1648,10 @@
         return b.name.localeCompare(a.name);
       }
       if (mode === "closest") {
-        return b.score - a.score
+        return Number(Boolean(b.exact)) - Number(Boolean(a.exact))
+          || Number(b.score || 0) - Number(a.score || 0)
+          || Number(b.gaugePoints || 0) - Number(a.gaugePoints || 0)
+          || Number(b.weightPoints || 0) - Number(a.weightPoints || 0)
           || Number(b.projectMatch) - Number(a.projectMatch)
           || a.name.localeCompare(b.name);
       }

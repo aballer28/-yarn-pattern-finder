@@ -59,12 +59,36 @@
       "https://wyspinners.com/products/exquisite-lace-yarn"
   };
 
+
+  // Exact official media overrides for pages that are known to block or
+  // dynamically hide product images from the serverless resolver.
+  // These are representative official product photos, not generic brand art.
+  const EXACT_MEDIA_OVERRIDES = new Map([
+    ["big twist|living", {
+      page: "https://www.michaels.com/product/big-twist-living-yarn-10806958",
+      image: "https://imgs.michaels.com/ce57db84-2460-435b-8fe8-fd86e10efd09.jpg?fit=inside%7C540%3A540"
+    }],
+    ["caron|anniversary cakes", {
+      page: "https://www.yarnspirations.com/products/caron-anniversary-cakes-yarn-1000g-35-3oz-discontinued-shades-1",
+      image: "https://www.yarnspirations.com/cdn/shop/files/29104747001-2-HRS.jpg?v=1689819750&width=600"
+    }]
+  ]);
+
   function exactSpecialCase(item) {
     if (!item || typeof item !== "object") return false;
 
     const brand = normalize(item.brand);
     const name = String(item.name || item.displayName || item.title || "");
     const n = normalize(name);
+
+    const exactMedia = EXACT_MEDIA_OVERRIDES.get(brand + "|" + n);
+    if (exactMedia) {
+      item.sourceUrl = exactMedia.page;
+      item.imagePage = exactMedia.page;
+      item.image = exactMedia.image;
+      item.imageVerified = true;
+      return true;
+    }
 
     // DROPS has a stable, yarn-specific official shademap image path.
     if (brand === "drops" && name) {
@@ -150,6 +174,7 @@
     params.set("url", page);
     params.set("name", name);
     params.set("kind", kind);
+    if (options.brand) params.set("brand", options.brand);
     if (validPage(options.altUrl) && options.altUrl !== page) {
       params.set("altUrl", options.altUrl);
     }
@@ -160,7 +185,21 @@
   }
 
   function genericCollectionPage(page) {
-    return /\/(?:collections?|patterns?|designs?|products?)\/?(?:[?#].*)?$/i.test(String(page || ""));
+    try {
+      const parsed = new URL(String(page || ""));
+      const path = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+      if (!path || path === "/") return true;
+
+      // Broad collection/search/shop pages are discovery pages, not identity
+      // evidence for one exact yarn or pattern.
+      if (/\/(?:collections?|search|shop)(?:\/|$)/i.test(path)) return true;
+      if (/(?:shop-all-yarn|shop-all-needlework|all-yarns|all-patterns|yarn-needlework)$/i.test(path)) return true;
+      if (/\/(?:patterns?|designs?|yarns?)$/i.test(path)) return true;
+
+      return false;
+    } catch {
+      return true;
+    }
   }
 
   function imageHasNameEvidence(image, name) {
@@ -197,11 +236,11 @@
         const altUrl = curated.page;
 
         if (validPage(page)) {
-          item.image = resolverImage(page, name, kind, { altUrl, fallback });
+          item.image = resolverImage(page, name, kind, { altUrl, fallback, brand: item.brand });
           return;
         }
         if (validPage(altUrl)) {
-          item.image = resolverImage(altUrl, name, kind, { fallback });
+          item.image = resolverImage(altUrl, name, kind, { fallback, brand: item.brand });
           return;
         }
         if (validImage(fallback)) {
@@ -238,7 +277,7 @@
     }
 
     if (!validPage(page) || !name) return;
-    item.image = resolverImage(page, name, kind);
+    item.image = resolverImage(page, name, kind, { brand: item.brand });
   }
 
 
