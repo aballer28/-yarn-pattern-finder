@@ -11,29 +11,10 @@ for (const file of scripts) {
   try { await fs.access(file); } catch { missingScripts.push(file); }
 }
 
-// catalog-audit-repair.js is intentionally disabled in the live page because it
-// is too expensive to run in a browser with the full catalog. The validator,
-// however, relies on its normalized audit identities/current-yarn data. Load it
-// only inside this headless VM, immediately after catalog-integration.js, so CI
-// validates the repaired catalog model without re-enabling the browser freeze.
-const auditRepair = "catalog-audit-repair.js";
-let auditRepairAvailable = false;
-try {
-  await fs.access(auditRepair);
-  auditRepairAvailable = true;
-} catch {}
-
-const scriptsForAudit = scripts.slice();
-if (auditRepairAvailable && !scriptsForAudit.includes(auditRepair)) {
-  const integrationIndex = scriptsForAudit.indexOf("catalog-integration.js");
-  const insertAt = integrationIndex >= 0 ? integrationIndex + 1 : scriptsForAudit.length;
-  scriptsForAudit.splice(insertAt, 0, auditRepair);
-}
-
 const sandbox = { window: { addEventListener() {} }, console, URL, URLSearchParams, setTimeout, clearTimeout };
 vm.createContext(sandbox);
 const loadErrors = [];
-for (const file of scriptsForAudit) {
+for (const file of scripts) {
   try {
     const code = await fs.readFile(file, "utf8");
     vm.runInContext(code, sandbox, { filename: file, timeout: 60000 });
@@ -176,7 +157,14 @@ if (yf) {
   check("confirmed two-yarn pattern can be exact",yf.rankedPatternMatch(held,[y1,y2]).score===100);
   const unconfirmed={...held,heldTogether:false,strandCount:1};
   check("unconfirmed two-yarn relationship is not exact",yf.rankedPatternMatch(unconfirmed,[y1,y2]).score<100);
-  check("held-together selection does not fake weight points",yf.weightCompatibilityPoints(held,[y1,y2]).points===0);
+  const twoLace=[{brand:"A",name:"L1",weight:"Lace"},{brand:"B",name:"L2",weight:"Lace"}];
+  const sportAran=[{brand:"A",name:"Sport",weight:"Sport"},{brand:"B",name:"Aran",weight:"Aran"}];
+  check("held-together weight engine covers the full scale",
+    yf.combinedYarnWeight(twoLace)==="Fingering" && yf.combinedYarnWeight(sportAran)==="Bulky");
+  check("held-together weight contributes cautiously",
+    yf.weightCompatibilityPoints({name:"DK Sub",craft:"knit",weight:"DK"},[
+      {brand:"A",name:"F1",weight:"Fingering"},{brand:"B",name:"F2",weight:"Fingering"}
+    ])>0);
 }
 const requiredCurrentYarns = {
   "Lise Tailor": ["Fingering Merino","Silk Mohair","Silk Merino","Cumulus","Aube","Filena"],
@@ -213,8 +201,8 @@ for (const y of yarns) {
   const brand = String(y.brand || "Unknown");
   const row = companyAudit[brand] ||= {
     yarns:0, missingImage:0, missingWeight:0, missingYardage:0, missingGrams:0,
-    missingFiber:0, missingPublishedGauge:0, missingDescription:0, genericSourceUrl:0,
-    placeholderLikeName:0
+    missingFiber:0, missingPublishedGauge:0, missingNeedleSize:0, missingHookSize:0,
+    missingDescription:0, genericSourceUrl:0, placeholderLikeName:0
   };
   row.yarns += 1;
   if (!y.image) row.missingImage += 1;
@@ -223,6 +211,8 @@ for (const y of yarns) {
   if (!(Number(y.grams)>0)) row.missingGrams += 1;
   if (!y.fiber && !y.fiberFamily) row.missingFiber += 1;
   if ((!y.knitGauge || y.knitGaugeEstimated) && (!y.crochetGauge || y.crochetGaugeEstimated)) row.missingPublishedGauge += 1;
+  if (!y.needleSize || y.needleSizeEstimated) row.missingNeedleSize += 1;
+  if (!y.hookSize || y.hookSizeEstimated) row.missingHookSize += 1;
   if (!y.description && !y.notes) row.missingDescription += 1;
   const source = String(y.productUrl || y.sourceUrl || y.imagePage || y.url || "");
   if (source && genericYarnSourceRe.test(source)) row.genericSourceUrl += 1;
@@ -241,6 +231,10 @@ const report={
     missingYardage:yarns.filter(y=>!(Number(y.yards)>0||Number(y.meters)>0)).map(y=>`${y.brand}|${y.name}`),
     missingGrams:yarns.filter(y=>!(Number(y.grams)>0)).map(y=>`${y.brand}|${y.name}`),
     missingPublishedKnitGauge,missingPublishedCrochetGauge,
+    missingPublishedNeedleSize:yarns.filter(y=>!y.needleSize||y.needleSizeEstimated).map(y=>`${y.brand}|${y.name}`),
+    missingPublishedHookSize:yarns.filter(y=>!y.hookSize||y.hookSizeEstimated).map(y=>`${y.brand}|${y.name}`),
+    estimatedYardage:yarns.filter(y=>y.yardsEstimated).map(y=>`${y.brand}|${y.name}`),
+    inferredWeight:yarns.filter(y=>y.weightEstimated).map(y=>`${y.brand}|${y.name}`),
     missingImage:yarns.filter(y=>!y.image).map(y=>`${y.brand}|${y.name}`),
     missingFiber:yarns.filter(y=>!y.fiber&&!y.fiberFamily).map(y=>`${y.brand}|${y.name}`),
     missingDescription:yarns.filter(y=>!y.description&&!y.notes).map(y=>`${y.brand}|${y.name}`),
@@ -281,14 +275,12 @@ const report={
   regression
 };
 await fs.writeFile("catalog-audit-report.json",JSON.stringify(report,null,2)+"\n");
-const failedRegression = regression.filter(x=>!x.pass);
 console.log(JSON.stringify({
   yarns:report.yarns.count,patterns:report.patterns.count,
   orphanRefs:orphanRefs.length,duplicateIdentities:report.yarns.duplicateIdentities.length,
   zeroExact:report.zeroExactPatternYarns.length,collectionRisks:genericPatternUrls.length,
   invalidCraft:invalidCraft.length,heldTogetherProblems:heldTogetherProblems.length,
-  loadErrors:loadErrors.length,regressionFailures:failedRegression.length,
-  failedRegression:failedRegression.map(({name,details})=>({name,details}))
+  loadErrors:loadErrors.length,regressionFailures:regression.filter(x=>!x.pass).length
 },null,2));
 
-if (missingScripts.length || loadErrors.length || invalidRenderedValues.length || failedRegression.length) process.exitCode=2;
+if (missingScripts.length || loadErrors.length || invalidRenderedValues.length || regression.some(x=>!x.pass)) process.exitCode=2;

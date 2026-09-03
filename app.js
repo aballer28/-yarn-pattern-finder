@@ -655,6 +655,46 @@
     return Number.isFinite(value) && value > 0 ? [value, value] : null;
   }
 
+  const STRAND_THICKNESS = new Map([
+    ["Lace", 1], ["Fingering", 2], ["Sport", 3], ["DK", 4],
+    ["Worsted", 5], ["Aran", 6], ["Bulky", 9], ["Super Bulky", 13], ["Jumbo", 18]
+  ]);
+  const COMBINED_GAUGE_GUIDES = {
+    Lace: [33, 40], Fingering: [27, 32], Sport: [23, 26], DK: [21, 24],
+    Worsted: [16, 20], Aran: [16, 18], Bulky: [12, 15], "Super Bulky": [7, 11], Jumbo: [1, 6]
+  };
+  const COMBINED_WEIGHT_LABELS = {
+    Fingering: "Fingering / Sock", Bulky: "Bulky / Chunky"
+  };
+
+  function strandThickness(yarn) {
+    const families = weightFamilies(yarn && yarn.weight).filter((weight) => STRAND_THICKNESS.has(weight));
+    if (!families.length) return null;
+    return families.reduce((sum, weight) => sum + STRAND_THICKNESS.get(weight), 0) / families.length;
+  }
+
+  function combinedYarnWeight(yarnSelection) {
+    const chosen = selectionYarns(yarnSelection);
+    if (!chosen.length) return "";
+    if (chosen.length === 1) return weightFamilies(chosen[0].weight)[0] || chosen[0].weight || "";
+    const scores = chosen.map(strandThickness).filter(Number.isFinite);
+    if (scores.length !== chosen.length) return "";
+    const total = scores.reduce((sum, score) => sum + score, 0);
+    return [...STRAND_THICKNESS.entries()]
+      .sort((a, b) => Math.abs(a[1] - total) - Math.abs(b[1] - total) || a[1] - b[1])[0]?.[0] || "";
+  }
+
+  function combinedWeightLabel(yarnSelection) {
+    const weight = combinedYarnWeight(yarnSelection);
+    return COMBINED_WEIGHT_LABELS[weight] || weight || "Not enough label data";
+  }
+
+  function estimatedCombinedGaugeRange(yarnSelection) {
+    const weight = combinedYarnWeight(yarnSelection);
+    const guide = COMBINED_GAUGE_GUIDES[weight];
+    return guide ? guide.slice() : null;
+  }
+
   function populatePutupControl(yarn, fieldId, selectId) {
     const field = $(fieldId);
     const select = $(selectId);
@@ -762,8 +802,10 @@
             yarn.discontinued ? "Discontinued" : null,
             yarn.weight,
             (Number.isFinite(yarn.yards) && yarn.yards > 0 && Number.isFinite(yarn.grams) && yarn.grams > 0)
-              ? `${yarn.yards} yd / ${yarn.grams} g`
-              : "Skein yardage being verified",
+              ? `${yarn.yardsEstimated ? "≈ " : ""}${yarn.yards} yd / ${yarn.grams} g${yarn.yardsEstimated ? " (label-based estimate)" : ""}`
+              : (Number.isFinite(yarn.yards) && yarn.yards > 0)
+              ? `${yarn.yardsEstimated ? "≈ " : ""}${yarn.yards} yd per skein${yarn.yardsEstimated ? " (label-based estimate)" : ""}`
+              : "Skein length not published",
             yarn.fiber
           ].filter(Boolean).map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}
         </div>
@@ -788,12 +830,19 @@
     const craftLabel = state.craft === "crochet" ? "Crochet" : "Knitting";
     const toolName = state.craft === "crochet" ? "Hook" : "Needles";
     if (held) {
-      const swatchLabel = swatch ? `${swatch[0]} sts / 4 in` : "Not entered — exact two-yarn patterns still rank first; substitution matches stay cautious";
+      const combinedWeight = combinedWeightLabel(selected);
+      const estimatedGauge = estimatedCombinedGaugeRange(selected);
+      const swatchLabel = swatch
+        ? `${swatch[0]} sts / 4 in (your swatch — used for ranking)`
+        : estimatedGauge
+        ? `${estimatedGauge[0]}–${estimatedGauge[1]} sts / 4 in estimated from the two label weights; swatch overrides this`
+        : "Not enough label data — a swatch will give the best match";
       $("matchBasis").innerHTML = `<strong>${craftLabel} held-together match details</strong>
         <span><b>First yarn:</b> ${escapeHtml(yarn.weight || "Weight not published")} · ${escapeHtml(gaugeTextForYarn(yarn))}</span>
         <span><b>Second yarn:</b> ${escapeHtml(second.weight || "Weight not published")} · ${escapeHtml(gaugeTextForYarn(second))}</span>
-        <span><b>Combined swatch gauge:</b> ${escapeHtml(swatchLabel)}</span>
-        <span><b>${toolName}:</b> Follow the finished pattern or your swatch; individual ball-band tool sizes are not a combined-yarn gauge.</span>`;
+        <span><b>Estimated combined weight:</b> ${escapeHtml(combinedWeight)}</span>
+        <span><b>Combined gauge:</b> ${escapeHtml(swatchLabel)}</span>
+        <span><b>${toolName}:</b> Pattern tool size + both yarn labels are used as supporting evidence; your finished swatch is strongest.</span>`;
     } else {
       $("matchBasis").innerHTML = `<strong>${craftLabel} match details</strong>
         <span><b>Yarn weight:</b> ${escapeHtml(yarn.weight)}</span>
@@ -819,7 +868,8 @@
     const yarn = selected[0];
     const second = selected[1] || null;
     const held = Boolean(second);
-    const ranges = baseRanges[yarn.weight] || baseRanges.Worsted;
+    const estimateWeight = held ? combinedYarnWeight(selected) : (weightFamilies(yarn.weight)[0] || yarn.weight);
+    const ranges = baseRanges[estimateWeight] || baseRanges.Worsted;
     const isNovelty = yarn.weight === "Novelty" || (second && second.weight === "Novelty");
     const multiplier = craftMultiplier();
     const estimateTarget = $("selectedYarnEstimates") || $("projectCards");
@@ -836,10 +886,16 @@
     if (held) {
       const sameYarn = sameYarnReference(`${second.brand}|${second.name}`, yarn);
       if (!Number.isFinite(yarn.yards) || yarn.yards <= 0 || !Number.isFinite(second.yards) || second.yards <= 0) {
+        const rows = Object.entries(ranges).map(([project, range]) => {
+          const minYards = Math.round(range[0] * multiplier);
+          const maxYards = Math.round(range[1] * multiplier);
+          return `<div class="skein-estimate-row"><strong>${escapeHtml(project)}</strong><div class="skein-project-list"><span class="skein-project">${formatNumber(minYards)}–${formatNumber(maxYards)} yd of each strand</span></div></div>`;
+        }).join("");
         estimateTarget.innerHTML = `
           <div class="skein-estimates">
             <h3>Yarn Skein Estimates</h3>
-            <p>Held-together skein estimates will appear once both yarns have verified skein yardage.</p>
+            <p class="helper">Estimated combined weight: ${escapeHtml(combinedWeightLabel(selected))}. One or both skein lengths are missing, so the guide shows yardage per strand instead of inventing a skein count.</p>
+            ${rows}
           </div>`;
         return;
       }
@@ -865,17 +921,23 @@
       estimateTarget.innerHTML = `
         <div class="skein-estimates">
           <h3>Yarn Skein Estimates</h3>
-          <p class="helper">Held-together estimates assume one strand of each yarn is worked throughout. The final pattern's size-specific yardage wins.</p>
+          <p class="helper">Estimated combined weight: ${escapeHtml(combinedWeightLabel(selected))}. Held-together estimates assume one strand of each yarn is worked throughout.${yarn.yardsEstimated || second.yardsEstimated ? " One or both skein lengths are label-based estimates." : ""} The final pattern's size-specific yardage wins.</p>
           ${rows}
         </div>`;
       return;
     }
 
     if (!Number.isFinite(yarn.yards) || yarn.yards <= 0) {
+      const rows = Object.entries(ranges).map(([project, range]) => {
+        const minYards = Math.round(range[0] * multiplier);
+        const maxYards = Math.round(range[1] * multiplier);
+        return `<div class="skein-estimate-row"><strong>${escapeHtml(project)}</strong><div class="skein-project-list"><span class="skein-project">${formatNumber(minYards)}–${formatNumber(maxYards)} yd</span></div></div>`;
+      }).join("");
       estimateTarget.innerHTML = `
         <div class="skein-estimates">
           <h3>Yarn Skein Estimates</h3>
-          <p>Skein estimates will appear once this yarn's official skein yardage is verified. No placeholder or “Infinity” estimate will be shown.</p>
+          <p class="helper">The skein length is not published in the loaded label data. Gauge, weight, and needle/hook size still provide this project-yardage guide; exact skein counts require the skein length.</p>
+          ${rows}
         </div>`;
       return;
     }
@@ -909,6 +971,7 @@
     estimateTarget.innerHTML = `
       <div class="skein-estimates">
         <h3>Yarn Skein Estimates</h3>
+        ${yarn.yardsEstimated ? '<p class="helper">Approximate: skein length was inferred from the yarn label&#39;s grams plus its weight/gauge/needle/hook information.</p>' : ""}
         ${rows}
       </div>`;
   }
@@ -1174,7 +1237,8 @@
     const project = $("buyProject").value || state.project;
     const size = $("size").value || "M";
     const buffer = Number($("buffer").value || 0);
-    const ranges = baseRanges[yarn.weight] || baseRanges.Worsted;
+    const estimateWeight = held ? combinedYarnWeight(selected) : (weightFamilies(yarn.weight)[0] || yarn.weight);
+    const ranges = baseRanges[estimateWeight] || baseRanges.Worsted;
     const range = ranges[project] || [300, 600];
     const sizeFactor = project === "Sweater" || project === "Baby" ? (sizeFactors[size] || 1) : 1;
     const midpoint = ((range[0] + range[1]) / 2) * sizeFactor * craftMultiplier();
@@ -1420,8 +1484,56 @@
 
   function selectedGaugeRange(yarnSelection) {
     const chosen = selectionYarns(yarnSelection);
-    if (chosen.length > 1) return combinedSwatchGauge();
+    if (chosen.length > 1) return combinedSwatchGauge() || estimatedCombinedGaugeRange(chosen);
     return yarnGaugeRange(chosen[0]);
+  }
+
+  function toolMmRange(value) {
+    const text = String(value || "");
+    const mm = [...text.matchAll(/(\d+(?:\.\d+)?)\s*mm\b/gi)].map((m) => Number(m[1])).filter(Number.isFinite);
+    if (mm.length) return [Math.min(...mm), Math.max(...mm)];
+    const usNeedles = new Map([[0,2],[1,2.25],[2,2.75],[3,3.25],[4,3.5],[5,3.75],[6,4],[7,4.5],[8,5],[9,5.5],[10,6],[10.5,6.5],[11,8],[13,9],[15,10],[17,12],[19,15],[35,19],[50,25]]);
+    const hookLetters = new Map([["B",2.25],["C",2.75],["D",3.25],["E",3.5],["F",3.75],["G",4],["H",5],["I",5.5],["J",6],["K",6.5],["L",8],["M",9],["N",10],["P",11.5],["Q",15]]);
+    const us = text.match(/\bUS\s*(\d+(?:\.\d+)?)/i);
+    if (us && usNeedles.has(Number(us[1]))) { const v = usNeedles.get(Number(us[1])); return [v, v]; }
+    const hook = text.match(/\b([B-Q])(?:[-\s/]?\d+(?:\.\d+)?)?\b/i);
+    if (hook && hookLetters.has(hook[1].toUpperCase())) { const v = hookLetters.get(hook[1].toUpperCase()); return [v, v]; }
+    return null;
+  }
+
+  function patternToolRange(pattern) {
+    const craft = pattern?.craft === "crochet" ? "crochet" : "knit";
+    return toolMmRange(craft === "crochet"
+      ? (pattern?.hookSize || pattern?.toolSize || pattern?.needleSize)
+      : (pattern?.needleSize || pattern?.toolSize || pattern?.hookSize));
+  }
+
+  function selectionToolRange(yarnSelection, pattern) {
+    const chosen = selectionYarns(yarnSelection);
+    const craft = pattern?.craft === "crochet" ? "crochet" : "knit";
+    if (!chosen.length) return { range: null, estimated: false };
+    if (chosen.length > 1) {
+      const weight = combinedYarnWeight(chosen);
+      const guide = toolRecommendations[weight]?.[craft];
+      return { range: toolMmRange(guide), estimated: true };
+    }
+    const yarn = chosen[0];
+    const value = craft === "crochet" ? yarn?.hookSize : yarn?.needleSize;
+    const estimated = craft === "crochet" ? Boolean(yarn?.hookSizeEstimated) : Boolean(yarn?.needleSizeEstimated);
+    return { range: toolMmRange(value), estimated };
+  }
+
+  function toolCompatibilityPoints(pattern, yarnSelection) {
+    const target = patternToolRange(pattern);
+    const selected = selectionToolRange(yarnSelection, pattern);
+    if (!target || !selected.range) return 0;
+    const targetMid = (target[0] + target[1]) / 2;
+    const selectedMid = (selected.range[0] + selected.range[1]) / 2;
+    const overlap = target[0] <= selected.range[1] && selected.range[0] <= target[1];
+    const diff = Math.abs(targetMid - selectedMid);
+    let points = overlap ? 15 : diff <= 1 ? 10 : diff <= 2 ? 5 : 0;
+    if (selected.estimated) points = Math.min(points, 6);
+    return points;
   }
 
   function gaugeCompatibilityPoints(pattern, yarnSelection) {
@@ -1433,28 +1545,22 @@
 
   function weightCompatibilityPoints(pattern, yarnSelection) {
     const chosen = selectionYarns(yarnSelection);
-    if (!chosen.length) return 0;
-    // Two-yarn thickness is not the sum of two ball-band labels. Without a
-    // finished swatch, do not award technical compatibility from individual
-    // yarn-weight categories. Exact held-together relationships are handled
-    // separately and a user-entered combined gauge supplies substitution evidence.
-    if (chosen.length > 1) return 0;
+    if (!chosen.length || isAnyYarnWeight(pattern.weight)) return 0;
 
-    const yarn = chosen[0];
-    // "Any" is not evidence that the selected yarn is a technical match.
-    // Let exact-yarn identity and published gauge determine the ranking instead.
-    if (isAnyYarnWeight(pattern.weight)) return 0;
     const weightOrder = new Map([
       ["Lace", 0], ["Fingering", 1], ["Sport", 2], ["DK", 3],
       ["Worsted", 4], ["Aran", 4.35], ["Bulky", 5], ["Super Bulky", 6], ["Jumbo", 7]
     ]);
-    const selected = String(yarn.weight || "");
+    const selected = chosen.length > 1 ? combinedYarnWeight(chosen) : String(chosen[0].weight || "");
+    if (!selected) return 0;
+
     const published = pattern.weight ? [pattern.weight] : [];
     const inferred = pattern.weight ? [] : (pattern.usedYarns || []).map((yarnKey) => yarnByReference(yarnKey)?.weight).filter(Boolean);
     const candidates = published.length ? published : [...new Set(inferred)];
-    const fullSame = published.length ? 30 : 20;
-    const fullFamily = published.length ? 24 : 16;
-    const adjacent = published.length ? 12 : 8;
+    const held = chosen.length > 1;
+    const fullSame = held ? (published.length ? 24 : 16) : (published.length ? 30 : 20);
+    const fullFamily = held ? (published.length ? 18 : 12) : (published.length ? 24 : 16);
+    const adjacent = held ? (published.length ? 8 : 5) : (published.length ? 12 : 8);
     if (candidates.includes(selected)) return fullSame;
 
     const yarnFamilies = weightFamilies(selected);
@@ -1548,54 +1654,49 @@
     const yarn = chosen[0] || {};
     const heldSelection = chosen.length > 1;
     const relationship = selectionRelationship(pattern, chosen);
+    const manualCombinedGauge = heldSelection ? combinedSwatchGauge() : null;
     const selectedGauge = selectedGaugeRange(chosen);
     const gaugeResults = patternGaugeRanges(pattern).map((range) => gaugeCompatibility(range, selectedGauge));
     const bestGauge = gaugeResults.sort((a, b) => b.points - a.points)[0] || { points: 0, level: "unknown" };
     const gaugeMatch = ["exact", "close"].includes(bestGauge.level);
 
-    let weightMatch = false;
-    if (!heldSelection) {
-      const yarnWeights = new Set(weightFamilies(yarn.weight));
-      weightMatch = !isAnyYarnWeight(pattern.weight) && patternWeights(pattern)
-        .flatMap(weightFamilies)
-        .some((weight) => yarnWeights.has(weight));
-    }
+    const selectedWeight = heldSelection ? combinedYarnWeight(chosen) : yarn.weight;
+    const yarnWeights = new Set(weightFamilies(selectedWeight));
+    const weightMatch = !isAnyYarnWeight(pattern.weight) && patternWeights(pattern)
+      .flatMap(weightFamilies)
+      .some((weight) => yarnWeights.has(weight));
 
-    const gaugePoints = bestGauge.points;
+    // A calculated two-strand gauge is useful but not equivalent to a real
+    // swatch. Cap its evidence until the user enters a measured combined gauge.
+    const gaugePoints = heldSelection && !manualCombinedGauge
+      ? Math.min(34, bestGauge.points)
+      : bestGauge.points;
     const weightPoints = weightCompatibilityPoints(pattern, chosen);
+    const toolPoints = toolCompatibilityPoints(pattern, chosen);
     const fiberCheck = fiberSubstitutionCaution(pattern, chosen);
     let score;
     if (relationship.exact) score = 100;
     else if (heldSelection && relationship.allListed) {
-      // Both yarns are named by the design, but the source has not confirmed
-      // that they are physically held together. Keep it useful but not "exact".
-      score = Math.min(90, Math.max(70, gaugePoints));
-    } else if (heldSelection) {
-      // For a two-yarn substitution, only the finished swatch gauge is strong
-      // technical evidence. Individual ball-band gauges/weights are not added.
-      score = Math.min(99, gaugePoints);
+      score = Math.min(90, Math.max(70, gaugePoints + weightPoints + toolPoints));
     } else {
-      score = Math.min(99, gaugePoints + weightPoints);
+      score = Math.min(99, gaugePoints + weightPoints + toolPoints);
     }
-    if (!relationship.allListed && fiberCheck.penalty) {
-      score = Math.max(0, score - fiberCheck.penalty);
-    }
+    if (!relationship.allListed && fiberCheck.penalty) score = Math.max(0, score - fiberCheck.penalty);
 
     const selectedNames = chosen.map((item) => item.name).filter(Boolean);
+    const combinedLabel = heldSelection ? combinedWeightLabel(chosen) : "";
     const baseReason = relationship.exact && heldSelection
       ? `Written for ${selectedNames.join(" + ")} held together.`
       : relationship.exact
       ? `Written for ${yarn.name}.`
       : heldSelection && relationship.allListed
       ? "The pattern lists both selected yarns, but the stored source does not confirm they are held together. Check the pattern instructions."
-      : heldSelection && !selectedGauge
-      ? "Enter the gauge from a swatch of the two yarns held together to rank substitution patterns. Exact held-together patterns still rank first."
-      : heldSelection && bestGauge.level === "exact"
-      ? "Your combined swatch gauge is very close to the published pattern gauge. Check fiber/fabric and swatch before substituting."
-      : heldSelection && bestGauge.level === "close"
-      ? "Your combined swatch gauge is close to the published pattern gauge. Swatch before substituting."
-      : heldSelection && bestGauge.level === "caution"
-      ? "Your combined swatch gauge is within a caution range; check fabric carefully."
+      : heldSelection && manualCombinedGauge && bestGauge.level === "exact"
+      ? `Your combined swatch gauge is very close to the pattern gauge; the two labels estimate about ${combinedLabel}.`
+      : heldSelection && manualCombinedGauge && bestGauge.level === "close"
+      ? `Your combined swatch gauge is close to the pattern gauge; the two labels estimate about ${combinedLabel}.`
+      : heldSelection && selectedGauge
+      ? `The two yarn labels estimate about ${combinedLabel}. Gauge, pattern weight, and needle/hook size are used cautiously until you enter a combined swatch gauge.`
       : bestGauge.level === "exact" && isAnyYarnWeight(pattern.weight)
       ? "Very close published gauge. The pattern allows any yarn weight, so weight alone is not counted as match evidence."
       : bestGauge.level === "close" && isAnyYarnWeight(pattern.weight)
@@ -1606,23 +1707,25 @@
       ? "Close published gauge and yarn-weight match. Swatch before substituting."
       : bestGauge.level === "caution"
       ? "Gauge is within a caution range; check fabric and swatch before substituting."
+      : weightMatch && toolPoints > 0
+      ? "Yarn weight and needle/hook size agree; gauge is not fully published/recorded."
       : weightMatch && bestGauge.level === "unknown"
       ? "Yarn weight matches, but the pattern or yarn gauge is not published/recorded."
+      : toolPoints > 0
+      ? "Needle/hook size provides partial compatibility evidence; confirm gauge before substituting."
       : weightMatch
       ? "Yarn weight matches, but the published gauge differs."
       : score > 0
       ? "A partial technical match; swatch carefully before substituting."
       : "No confirmed technical match.";
-    const reason = fiberCheck.caution && !relationship.allListed
-      ? `${baseReason} ${fiberCheck.caution}`
-      : baseReason;
+    const reason = fiberCheck.caution && !relationship.allListed ? `${baseReason} ${fiberCheck.caution}` : baseReason;
 
     return {
-      score, reason, gaugeMatch, weightMatch, gaugePoints, weightPoints,
+      score, reason, gaugeMatch, weightMatch, gaugePoints, weightPoints, toolPoints,
       fiberPenalty: fiberCheck.penalty, fiberCaution: fiberCheck.caution,
       gaugeLevel: bestGauge.level, projectMatch: pattern.inferredProject === state.project,
       exact: relationship.exact, allSelectedYarnsListed: relationship.allListed,
-      heldTogetherSelection: heldSelection
+      heldTogetherSelection: heldSelection, combinedWeight: heldSelection ? combinedYarnWeight(chosen) : ""
     };
   }
 
@@ -1664,6 +1767,7 @@
           || Number(b.score || 0) - Number(a.score || 0)
           || Number(b.gaugePoints || 0) - Number(a.gaugePoints || 0)
           || Number(b.weightPoints || 0) - Number(a.weightPoints || 0)
+          || Number(b.toolPoints || 0) - Number(a.toolPoints || 0)
           || Number(b.projectMatch) - Number(a.projectMatch)
           || a.name.localeCompare(b.name);
       }
@@ -1879,6 +1983,7 @@
     rankedPatternMatch, gaugeCompatibilityPoints, weightCompatibilityPoints, patternGaugeLabel,
     patternWeightLabel, recommendedToolLabel, skeinCount, patternRecencyValue, sortRankedPatterns,
     canonicalYarnKey, sameYarnReference, selectionRelationship, patternHeldTogether, selectedGaugeRange,
+    combinedYarnWeight, combinedWeightLabel, estimatedCombinedGaugeRange, toolMmRange, toolCompatibilityPoints,
     fiberConstructionTags, fiberSubstitutionCaution, genericCollectionUrl, patternPrimaryUrl, customerDesigner
   };
   if (typeof document !== "undefined") init();

@@ -28,10 +28,20 @@ const tests={
    {name:'Colorwork',craft:'knit',usedYarns:['Quince & Co.|Cormo','Test|Mohair']},
    [{brand:'Quince & Co.',name:'Cormo',weight:'Worsted'},{brand:'Test',name:'Mohair',weight:'Lace'}]
  ).score<100,
- heldTogetherNoFakeWeightPoints:yf.weightCompatibilityPoints(
-   {name:'Sub',craft:'knit',weight:'Worsted'},
-   [{brand:'A',name:'One',weight:'Fingering'},{brand:'B',name:'Two',weight:'Lace'}]
- )===0,
+ twoLaceBecomesFingering:yf.combinedYarnWeight(
+   [{brand:'A',name:'One',weight:'Lace'},{brand:'B',name:'Two',weight:'Lace'}]
+ )==='Fingering',
+ sportPlusAranBecomesBulky:yf.combinedYarnWeight(
+   [{brand:'A',name:'Sport',weight:'Sport'},{brand:'B',name:'Aran',weight:'Aran'}]
+ )==='Bulky',
+ twoFingeringGetsDKWeightPoints:yf.weightCompatibilityPoints(
+   {name:'Sub',craft:'knit',weight:'DK'},
+   [{brand:'A',name:'One',weight:'Fingering'},{brand:'B',name:'Two',weight:'Fingering'}]
+ )>0,
+ toolSizeAddsEvidence:yf.rankedPatternMatch(
+   {name:'Tool Only',craft:'knit',inferredProject:'Hat',needleSize:'5 mm'},
+   {brand:'Test',name:'Plain',weight:'Worsted',needleSize:'5 mm'}
+ ).score>0,
  constructionMismatchPenalized:yf.rankedPatternMatch(
    {name:'Boucle Sub',craft:'knit',weight:'Worsted',gauge:19,usedYarns:['Test|Boucle']},
    {brand:'Test',name:'Plain',weight:'Worsted',knitGauge:[18,20],fiber:'100% wool'}

@@ -439,6 +439,118 @@
     return CYC_TO_WEIGHT[cyc] || sweepText(item && item.weight) || "";
   }
 
+  const TECH_WEIGHT_ORDER = ["Lace", "Fingering", "Sport", "DK", "Worsted", "Aran", "Bulky", "Super Bulky", "Jumbo"];
+  const NOMINAL_YARDS_PER_100G = {
+    "Lace": 700, "Fingering": 420, "Sport": 330, "DK": 250,
+    "Worsted": 200, "Aran": 170, "Bulky": 120, "Super Bulky": 70, "Jumbo": 35
+  };
+
+  function toolMmRange(value) {
+    const text = String(value || "");
+    const mmMatches = [...text.matchAll(/(\d+(?:\.\d+)?)\s*mm\b/gi)].map(function (m) { return Number(m[1]); }).filter(Number.isFinite);
+    if (mmMatches.length) return [Math.min.apply(null, mmMatches), Math.max.apply(null, mmMatches)];
+
+    const usNeedles = { 0:2, 1:2.25, 2:2.75, 3:3.25, 4:3.5, 5:3.75, 6:4, 7:4.5, 8:5, 9:5.5, 10:6, 10.5:6.5, 11:8, 13:9, 15:10, 17:12, 19:15, 35:19, 50:25 };
+    const hookLetters = { B:2.25, C:2.75, D:3.25, E:3.5, F:3.75, G:4, H:5, I:5.5, J:6, K:6.5, L:8, M:9, N:10, P:11.5, Q:15 };
+    const us = text.match(/\bUS\s*(\d+(?:\.\d+)?)/i);
+    if (us && usNeedles[Number(us[1])]) {
+      const mm = usNeedles[Number(us[1])];
+      return [mm, mm];
+    }
+    const hook = text.match(/\b([B-Q])(?:[-\s/]?\d+(?:\.\d+)?)?\b/i);
+    if (hook && hookLetters[hook[1].toUpperCase()]) {
+      const mm = hookLetters[hook[1].toUpperCase()];
+      return [mm, mm];
+    }
+    return null;
+  }
+
+  function weightIndexFromGauge(gauge, craft) {
+    const range = sweepGauge(gauge);
+    if (!range) return null;
+    const mid = (range[0] + range[1]) / 2;
+    if (craft === "crochet") {
+      if (mid >= 32) return 0;
+      if (mid >= 21) return 1;
+      if (mid >= 16) return 2;
+      if (mid >= 12) return 3;
+      if (mid >= 11) return 4;
+      if (mid >= 9.5) return 5;
+      if (mid >= 7) return 6;
+      if (mid >= 4.5) return 7;
+      return 8;
+    }
+    if (mid >= 33) return 0;
+    if (mid >= 27) return 1;
+    if (mid >= 23) return 2;
+    if (mid >= 21) return 3;
+    if (mid >= 18.5) return 4;
+    if (mid >= 16) return 5;
+    if (mid >= 12) return 6;
+    if (mid >= 7) return 7;
+    return 8;
+  }
+
+  function weightIndexFromTool(value, craft) {
+    const range = toolMmRange(value);
+    if (!range) return null;
+    const mm = (range[0] + range[1]) / 2;
+    if (craft === "crochet") {
+      if (mm <= 2.25) return 0;
+      if (mm <= 3.5) return 1;
+      if (mm <= 4.5) return 2;
+      if (mm <= 5.5) return 3;
+      if (mm <= 6.5) return 4;
+      if (mm <= 7.5) return 5;
+      if (mm <= 9) return 6;
+      if (mm <= 15) return 7;
+      return 8;
+    }
+    if (mm <= 2.25) return 0;
+    if (mm <= 3.25) return 1;
+    if (mm <= 3.75) return 2;
+    if (mm <= 4.5) return 3;
+    if (mm <= 5.5) return 4;
+    if (mm <= 6.5) return 5;
+    if (mm <= 8) return 6;
+    if (mm <= 12.75) return 7;
+    return 8;
+  }
+
+  function inferredTechnicalWeight(item) {
+    const indexes = [
+      weightIndexFromGauge(item && item.knitGauge, "knit"),
+      weightIndexFromGauge(item && item.crochetGauge, "crochet"),
+      weightIndexFromTool(item && item.needleSize, "knit"),
+      weightIndexFromTool(item && item.hookSize, "crochet")
+    ].filter(Number.isFinite).sort(function (a, b) { return a - b; });
+    if (!indexes.length) return "";
+    const middle = indexes[Math.floor(indexes.length / 2)];
+    return TECH_WEIGHT_ORDER[middle] || "";
+  }
+
+  function completeLabelLength(item) {
+    if (!item || typeof item !== "object") return;
+    const ounces = Number(item.ounces);
+    if ((!Number.isFinite(Number(item.grams)) || Number(item.grams) <= 0) && Number.isFinite(ounces) && ounces > 0) {
+      item.grams = Math.round(ounces * 28.3495);
+      item.gramsConvertedFromOunces = true;
+    }
+
+    addMetricLength(item);
+    if (Number.isFinite(Number(item.yards)) && Number(item.yards) > 0) return;
+
+    const grams = Number(item.grams);
+    const nominal = NOMINAL_YARDS_PER_100G[item.weight];
+    if (!Number.isFinite(grams) || grams <= 0 || !Number.isFinite(nominal)) return;
+
+    item.yards = Math.max(1, Math.round(nominal * grams / 100));
+    item.meters = Math.max(1, Math.round(item.yards * 0.9144));
+    item.yardsEstimated = true;
+    item.metersEstimated = true;
+    item.lengthEstimateBasis = "label grams plus yarn weight/gauge/tool size";
+  }
+
   const VERIFIED_YARN_FACTS = new Map([
     ["big twist|value", {
       displayName: "Value Yarn",
@@ -516,7 +628,11 @@
     applyVerifiedYarnFacts(item);
     item.brand = sweepBrand(item.brand);
 
-    const weight = canonicalSweepWeight(item);
+    let weight = canonicalSweepWeight(item);
+    if (!weight) {
+      weight = inferredTechnicalWeight(item);
+      if (weight) item.weightEstimated = true;
+    }
     if (weight) item.weight = weight;
 
     if (!item.fiber && item.fiberFamily) {
@@ -555,7 +671,7 @@
       }
     }
 
-    addMetricLength(item);
+    completeLabelLength(item);
     ensureYarnDescription(item);
     return item;
   }
@@ -872,6 +988,20 @@
       }
     } else if (item.weight) {
       item.weight = canonicalSweepWeight({ weight: item.weight }) || item.weight;
+    }
+
+    if (!item.weight) {
+      const inferredWeight = inferredTechnicalWeight({
+        knitGauge: item.craft === "crochet" ? null : item.gauge,
+        crochetGauge: item.craft === "crochet" ? item.gauge : null,
+        needleSize: item.needleSize || (item.craft !== "crochet" ? item.toolSize : null),
+        hookSize: item.hookSize || (item.craft === "crochet" ? item.toolSize : null)
+      });
+      if (inferredWeight) {
+        item.weight = inferredWeight;
+        item.weightEstimated = true;
+        item.weightEstimateBasis = "pattern gauge/needle/hook size";
+      }
     }
 
     return item;
