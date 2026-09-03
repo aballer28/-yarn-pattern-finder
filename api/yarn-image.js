@@ -62,7 +62,7 @@ function imageLike(url = "") {
     /images?|cdn|media|assets|uploads|products?|shademap/i.test(url);
 }
 
-function scoreCandidate(candidate, tokens, pageUrl) {
+function scoreCandidate(candidate, tokens, pageUrl, kind) {
   if (!candidate || !candidate.url) return -9999;
 
   const url = absoluteUrl(candidate.url, pageUrl);
@@ -77,18 +77,39 @@ function scoreCandidate(candidate, tokens, pageUrl) {
   ].filter(Boolean).join(" "));
 
   let score = 0;
+  let matchedTokens = 0;
 
   for (const token of tokens) {
-    if (hay.includes(token)) score += 12;
+    if (hay.includes(token)) {
+      score += 12;
+      matchedTokens += 1;
+    }
   }
 
-  if (candidate.type === "jsonld-product") score += 70;
-  if (candidate.type === "jsonld-creative") score += 55;
-  if (candidate.type === "img") score += 30;
-  if (candidate.type === "og") score += 12;
-  if (candidate.type === "twitter") score += 8;
+  // A collection page can contain many valid product images. Require a
+  // meaningful name match so a working but unrelated image cannot win simply
+  // because it is the first Product/CreativeWork image on the page.
+  if (tokens.length && matchedTokens === 0) score -= 60;
+  if (tokens.length && matchedTokens >= Math.ceil(tokens.length / 2)) score += 20;
 
-  if (/product|yarn|skein|ball|pattern|design/i.test(hay)) score += 14;
+  if (kind === "pattern") {
+    if (candidate.type === "jsonld-creative") score += 85;
+    if (candidate.type === "jsonld-product") score += 45; // many pattern shops sell PDFs as products
+    if (candidate.type === "img") score += 30;
+    if (candidate.type === "og") score += 18;
+    if (candidate.type === "twitter") score += 10;
+    if (/pattern|design|knit|crochet|pdf/i.test(hay)) score += 18;
+    if (/yarn|skein|ball/i.test(hay) && !/pattern|design/i.test(hay)) score -= 12;
+  } else {
+    if (candidate.type === "jsonld-product") score += 80;
+    if (candidate.type === "jsonld-creative") score += 20;
+    if (candidate.type === "img") score += 30;
+    if (candidate.type === "og") score += 14;
+    if (candidate.type === "twitter") score += 8;
+    if (/product|yarn|skein|ball|fiber/i.test(hay)) score += 18;
+    if (/pattern|design/i.test(hay) && !/yarn|skein|ball/i.test(hay)) score -= 12;
+  }
+
   if (imageLike(url)) score += 8;
 
   // Prefer reasonably sized product media over tiny UI assets.
@@ -227,7 +248,7 @@ function extractMeta(html) {
   return out;
 }
 
-function chooseImage(html, pageUrl, name) {
+function chooseImage(html, pageUrl, name, kind) {
   const tokens = nameTokens(name);
   const candidates = [
     ...extractJsonLd(html),
@@ -236,7 +257,7 @@ function chooseImage(html, pageUrl, name) {
   ];
 
   const ranked = candidates
-    .map(c => ({ ...c, score: scoreCandidate(c, tokens, pageUrl) }))
+    .map(c => ({ ...c, score: scoreCandidate(c, tokens, pageUrl, kind) }))
     .filter(c => c.score >= 20)
     .sort((a, b) => b.score - a.score);
 
@@ -282,7 +303,7 @@ async function fetchResolvedImage(imageUrl, referer) {
   }
 }
 
-async function resolveFromPage(rawPage, name) {
+async function resolveFromPage(rawPage, name, kind) {
   const pageUrl = safeRemoteUrl(rawPage);
   if (!pageUrl) return null;
   try {
@@ -296,7 +317,7 @@ async function resolveFromPage(rawPage, name) {
     if (!pageResponse.ok) return null;
     const html = await pageResponse.text();
     const finalPage = pageResponse.url || pageUrl.toString();
-    const imageUrl = chooseImage(html, finalPage, name);
+    const imageUrl = chooseImage(html, finalPage, name, kind);
     if (!imageUrl) return null;
     return await fetchResolvedImage(imageUrl, finalPage);
   } catch {
@@ -309,6 +330,7 @@ export default async function handler(req, res) {
   const altUrl = String(req.query.altUrl || "");
   const fallback = String(req.query.fallback || "");
   const name = String(req.query.name || "");
+  const kind = String(req.query.kind || "yarn").toLowerCase() === "pattern" ? "pattern" : "yarn";
 
   if (!name || !safeRemoteUrl(page)) {
     res.status(400).send("Missing or invalid url/name");
@@ -316,12 +338,12 @@ export default async function handler(req, res) {
   }
 
   // 1. Try the item's primary official/product page.
-  let result = await resolveFromPage(page, name);
+  let result = await resolveFromPage(page, name, kind);
 
   // 2. If the official page moved, try the alternate verified source page
   //    (often the yarn's Ravelry library page recorded in the image catalog).
   if (!result && safeRemoteUrl(altUrl) && altUrl !== page) {
-    result = await resolveFromPage(altUrl, name);
+    result = await resolveFromPage(altUrl, name, kind);
   }
 
   // 3. Last resort: proxy the curated direct image server-side. This avoids
@@ -333,6 +355,7 @@ export default async function handler(req, res) {
   if (!result) {
     console.warn("GarnSwatch image miss", {
       name,
+      kind,
       page,
       altUrl: altUrl || null,
       hasFallback: Boolean(fallback)
