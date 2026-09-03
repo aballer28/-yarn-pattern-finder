@@ -361,6 +361,17 @@
 
   const sizeFactors = { XS: 0.78, S: 0.88, M: 1, L: 1.12, XL: 1.24, "2X": 1.38, "3X": 1.52, "4X": 1.68, "5X": 1.84 };
   const state = { craft: "knit", project: "Hat", patternVisible: 24, patternSort: "closest" };
+  const PATTERN_SORT_STORAGE_KEY = "garnSwatchPatternSort";
+  const savedPatternSort = (() => {
+    try {
+      return localStorage.getItem(PATTERN_SORT_STORAGE_KEY) || "";
+    } catch {
+      return "";
+    }
+  })();
+  if (["az", "za", "closest", "newest", "oldest"].includes(savedPatternSort)) {
+    state.patternSort = savedPatternSort;
+  }
   const toolRecommendations = {
     Lace: { knit: "US 000–1 (1.5–2.25 mm)", crochet: "Steel 6–8 or B-1 (1.4–2.25 mm)" },
     "LACE / SUPER FINE": { knit: "US 000–3 (1.5–3.25 mm)", crochet: "Steel 6–8 to E-4 (1.4–3.5 mm)" },
@@ -823,10 +834,6 @@
   function populatePatternBrands() {
     const patternBrands = [...new Set(rankedPatternCatalog.flatMap((pattern) => pattern.brands || []))]
       .sort((a, b) => a.localeCompare(b));
-    $("patternBrandFilter").innerHTML = [
-      `<option value="">All pattern brands</option>`,
-      ...patternBrands.map((brand) => `<option value="${escapeHtml(brand)}">${escapeHtml(brand)}</option>`)
-    ].join("");
   }
 
   function patternWeights(pattern) {
@@ -1018,13 +1025,11 @@
   function renderRankedPatternLibrary() {
     const yarn = currentYarn();
     const query = normalizedKey($("patternSearch").value);
-    const brand = $("patternBrandFilter").value;
     const filtered = rankedPatternCatalog
       .filter((pattern) => pattern.craft === state.craft)
       // When the user types in Pattern Search, search the full pattern library
       // for the selected craft instead of restricting results to the current yarn family.
       .filter((pattern) => query || !strictFamilyBrands.has(yarn.brand) || (pattern.usedYarns || []).includes(canonicalYarnKey(`${yarn.brand}|${yarn.name}`)) || (pattern.brands || []).includes(yarn.brand) || pattern.sourceBrand === yarn.brand)
-      .filter((pattern) => !brand || (pattern.brands || []).includes(brand))
       .filter((pattern) => !query || normalizedKey([
           pattern.name,
           pattern.designer,
@@ -1135,15 +1140,15 @@
       state.patternVisible = 24;
       renderRankedPatternLibrary();
     });
-    $("patternBrandFilter").addEventListener("change", () => {
-      state.patternVisible = 24;
-      renderRankedPatternLibrary();
-    });
     $("patternSort").addEventListener("change", () => {
       state.patternSort = $("patternSort").value;
+      try {
+        localStorage.setItem(PATTERN_SORT_STORAGE_KEY, state.patternSort);
+      } catch {}
       state.patternVisible = 24;
       renderRankedPatternLibrary();
     });
+    $("patternSort").value = state.patternSort;
     $("showMorePatterns").addEventListener("click", () => {
       state.patternVisible += 24;
       renderRankedPatternLibrary();
