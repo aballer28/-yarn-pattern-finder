@@ -1,0 +1,74 @@
+name: Garn Swatch clean yarn candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "migrate-clean-yarns.mjs"
+      - ".github/workflows/clean-yarn-rebuild.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garn-swatch-clean-yarn-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Preflight full repository — change nothing
+        run: node migrate-clean-yarns.mjs
+
+      - name: Generate candidate in runner only
+        run: node migrate-clean-yarns.mjs --write
+
+      - name: Verify candidate and existing regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check master-yarns.js
+          node --check pattern-catalog.js
+          node --check app.js
+          node --check exact-yarn-images.js
+          node test-app-regression.mjs
+          node - <<'NODE'
+          const fs=require('fs'), vm=require('vm');
+          const ctx={window:{}}; vm.createContext(ctx);
+          vm.runInContext(fs.readFileSync('master-yarns.js','utf8'),ctx);
+          const yarns=ctx.window.MASTER_YARN_CATALOG||[];
+          const norm=s=>String(s||'').normalize('NFKD').toLowerCase().replace(/[\u0300-\u036f]/g,'').replace(/&/g,'and').replace(/[^a-z0-9]+/g,' ').trim();
+          const key=y=>`${norm(y.brand)}|${norm(y.name)}`;
+          const keys=yarns.map(key);
+          if (new Set(keys).size!==keys.length) throw new Error('Duplicate Brand + Yarn records remain.');
+          if (yarns.length<1000) throw new Error(`Candidate unexpectedly small: ${yarns.length}`);
+          if (new Set(yarns.map(y=>norm(y.brand))).size<50) throw new Error('Candidate brand count unexpectedly small.');
+          const ann=yarns.find(y=>key(y)==='caron|anniversary cakes');
+          if (!ann || ann.weight!=='Super Bulky' || Number(ann.yards)!==1061 || Number(ann.grams)!==1000) throw new Error('Anniversary Cakes failed final candidate verification.');
+          const ber=yarns.find(y=>key(y)==='berroco|vintage');
+          if (!ber || Number(ber.yards)!==218 || Number(ber.grams)!==100) throw new Error('Berroco Vintage failed final candidate verification.');
+          console.log(`Candidate: ${yarns.length} yarns / ${new Set(yarns.map(y=>norm(y.brand))).size} brands.`);
+          NODE
+
+      - name: Save candidate for inspection — DO NOT deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-yarn-rebuild-candidate
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            master-yarns.js
+            pattern-catalog.js
+            master-yarns-needs-verification.json
+            clean-yarn-migration-report.json
+            app.js
+            index.html
