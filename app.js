@@ -360,7 +360,7 @@
   };
 
   const sizeFactors = { XS: 0.78, S: 0.88, M: 1, L: 1.12, XL: 1.24, "2X": 1.38, "3X": 1.52, "4X": 1.68, "5X": 1.84 };
-  const state = { craft: "knit", project: "Hat", patternVisible: 24, patternSort: "az" };
+  const state = { craft: "knit", project: "Hat", patternVisible: 24, patternSort: "closest" };
   const toolRecommendations = {
     Lace: { knit: "US 000–1 (1.5–2.25 mm)", crochet: "Steel 6–8 or B-1 (1.4–2.25 mm)" },
     "LACE / SUPER FINE": { knit: "US 000–3 (1.5–3.25 mm)", crochet: "Steel 6–8 to E-4 (1.4–3.5 mm)" },
@@ -1021,11 +1021,17 @@
     const brand = $("patternBrandFilter").value;
     const filtered = rankedPatternCatalog
       .filter((pattern) => pattern.craft === state.craft)
-      .filter((pattern) => !strictFamilyBrands.has(yarn.brand) || (pattern.usedYarns || []).includes(canonicalYarnKey(`${yarn.brand}|${yarn.name}`)) || (pattern.brands || []).includes(yarn.brand) || pattern.sourceBrand === yarn.brand)
+      // When the user types in Pattern Search, search the full pattern library
+      // for the selected craft instead of restricting results to the current yarn family.
+      .filter((pattern) => query || !strictFamilyBrands.has(yarn.brand) || (pattern.usedYarns || []).includes(canonicalYarnKey(`${yarn.brand}|${yarn.name}`)) || (pattern.brands || []).includes(yarn.brand) || pattern.sourceBrand === yarn.brand)
       .filter((pattern) => !brand || (pattern.brands || []).includes(brand))
       .filter((pattern) => !query || normalizedKey([
           pattern.name,
+          pattern.designer,
+          pattern.sourceBrand,
           pattern.inferredProject,
+          pattern.project,
+          pattern.craft,
           ...(pattern.brands || []),
           ...(pattern.usedYarns || [])
         ].join(" ")).includes(query))
