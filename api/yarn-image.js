@@ -9,6 +9,17 @@ const BAD_IMAGE_WORDS = [
   "instagram", "pinterest", "youtube", "newsletter", "avatar"
 ];
 
+
+const BROWSER_HEADERS = {
+  "user-agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+  "accept":
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "accept-language": "en-US,en;q=0.9",
+  "cache-control": "no-cache"
+};
+
 function decodeHtml(s = "") {
   return String(s)
     .replace(/&amp;/g, "&")
@@ -264,6 +275,97 @@ function chooseImage(html, pageUrl, name, kind) {
   return ranked.length ? absoluteUrl(ranked[0].url, pageUrl) : null;
 }
 
+
+function genericCollectionPage(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    const path = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+    if (!path || path === "/") return true;
+    if (/\/(?:collections?|search|shop)(?:\/|$)/i.test(path)) return true;
+    if (/(?:shop-all-yarn|shop-all-needlework|all-yarns|all-patterns|yarn-needlework)$/i.test(path)) return true;
+    if (/\/(?:patterns?|designs?|yarns?)$/i.test(path)) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function extractLinks(html, pageUrl) {
+  const out = [];
+  const re = /<a\b[^>]*href\s*=\s*(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const url = absoluteUrl(m[2], pageUrl);
+    if (!url) continue;
+    out.push({
+      url,
+      text: cleanText(m[3]),
+      context: cleanText(html.slice(Math.max(0, m.index - 140), Math.min(html.length, re.lastIndex + 140)))
+    });
+  }
+  return out;
+}
+
+function detailLinkScore(link, pageUrl, brand, name, kind) {
+  if (!link || !link.url) return -9999;
+  let parsed;
+  let source;
+  try {
+    parsed = new URL(link.url);
+    source = new URL(pageUrl);
+  } catch {
+    return -9999;
+  }
+  if (parsed.hostname !== source.hostname) return -9999;
+
+  const wanted = nameTokens([brand, name].filter(Boolean).join(" "));
+  const hay = normalize([link.url, link.text, link.context].join(" "));
+  let matched = 0;
+  for (const token of wanted) {
+    if (hay.includes(token)) matched += 1;
+  }
+  if (wanted.length && matched === 0) return -1000;
+
+  let score = matched * 20;
+  const path = parsed.pathname.toLowerCase();
+  if (kind === "pattern") {
+    if (/\/(?:products?|patterns?|designs?)\//.test(path)) score += 30;
+    if (/pattern|design|pdf/.test(hay)) score += 12;
+  } else {
+    if (/\/(?:products?|product)\//.test(path)) score += 35;
+    if (/yarn|skein|ball/.test(hay)) score += 12;
+  }
+  if (genericCollectionPage(link.url)) score -= 30;
+  return score;
+}
+
+function siteSearchUrls(pageUrl, brand, name, kind) {
+  let parsed;
+  try {
+    parsed = new URL(pageUrl);
+  } catch {
+    return [];
+  }
+  const host = parsed.hostname.toLowerCase();
+  const query = [brand, name, kind === "yarn" ? "yarn" : "pattern"].filter(Boolean).join(" ");
+  const q = encodeURIComponent(query);
+  const urls = [];
+
+  // Both sites currently render product tiles/links server-side on search pages.
+  if (/yarnspirations\.com$/.test(host)) {
+    urls.push(`${parsed.protocol}//${host}/search?q=${q}&type=product`);
+    urls.push(`${parsed.protocol}//${host}/search?q=${q}`);
+  } else if (/michaels\.com$/.test(host)) {
+    urls.push(`${parsed.protocol}//${host}/search?q=${q}`);
+  } else if (genericCollectionPage(pageUrl)) {
+    // Most Shopify-style manufacturer sites support /search?q= as a harmless
+    // fallback. A failure here simply falls through to the normal placeholder.
+    urls.push(`${parsed.protocol}//${host}/search?q=${q}`);
+  }
+
+  return [...new Set(urls)];
+}
+
 function safeRemoteUrl(value) {
   if (!/^https?:\/\//i.test(String(value || ""))) return null;
   try {
@@ -287,7 +389,8 @@ async function fetchResolvedImage(imageUrl, referer) {
     const response = await fetch(safe.toString(), {
       redirect: "follow",
       headers: {
-        "user-agent": "Mozilla/5.0 (compatible; GarnSwatchImageResolver/2.0)",
+        ...BROWSER_HEADERS,
+        "accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         ...(referer ? { referer } : {})
       }
     });
@@ -309,10 +412,7 @@ async function resolveFromPage(rawPage, name, kind) {
   try {
     const pageResponse = await fetch(pageUrl.toString(), {
       redirect: "follow",
-      headers: {
-        "user-agent": "Mozilla/5.0 (compatible; GarnSwatchImageResolver/2.0)",
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-      }
+      headers: BROWSER_HEADERS
     });
     if (!pageResponse.ok) return null;
     const html = await pageResponse.text();
@@ -325,11 +425,61 @@ async function resolveFromPage(rawPage, name, kind) {
   }
 }
 
+
+async function resolveViaDiscovery(rawPage, brand, name, kind) {
+  const source = safeRemoteUrl(rawPage);
+  if (!source) return null;
+
+  for (const searchUrl of siteSearchUrls(source.toString(), brand, name, kind)) {
+    const safeSearch = safeRemoteUrl(searchUrl);
+    if (!safeSearch) continue;
+
+    try {
+      const response = await fetch(safeSearch.toString(), {
+        redirect: "follow",
+        headers: BROWSER_HEADERS
+      });
+      if (!response.ok) continue;
+
+      const html = await response.text();
+      const finalSearch = response.url || safeSearch.toString();
+      const queryName = [brand, name].filter(Boolean).join(" ");
+
+      // A server-rendered search result can already contain the exact product
+      // tile image; use it if the name evidence is strong enough.
+      const directImage = chooseImage(html, finalSearch, queryName || name, kind);
+      if (directImage) {
+        const resolved = await fetchResolvedImage(directImage, finalSearch);
+        if (resolved) return resolved;
+      }
+
+      const links = extractLinks(html, finalSearch)
+        .map(link => ({
+          ...link,
+          score: detailLinkScore(link, finalSearch, brand, name, kind)
+        }))
+        .filter(link => link.score >= 20)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4);
+
+      for (const link of links) {
+        const resolved = await resolveFromPage(link.url, queryName || name, kind);
+        if (resolved) return resolved;
+      }
+    } catch {
+      // Keep trying the next discovery route.
+    }
+  }
+
+  return null;
+}
+
 export default async function handler(req, res) {
   const page = String(req.query.url || "");
   const altUrl = String(req.query.altUrl || "");
   const fallback = String(req.query.fallback || "");
   const name = String(req.query.name || "");
+  const brand = String(req.query.brand || "");
   const kind = String(req.query.kind || "yarn").toLowerCase() === "pattern" ? "pattern" : "yarn";
 
   if (!name || !safeRemoteUrl(page)) {
@@ -337,16 +487,33 @@ export default async function handler(req, res) {
     return;
   }
 
-  // 1. Try the item's primary official/product page.
-  let result = await resolveFromPage(page, name, kind);
+  const queryName = [brand, name].filter(Boolean).join(" ");
 
-  // 2. If the official page moved, try the alternate verified source page
-  //    (often the yarn's Ravelry library page recorded in the image catalog).
-  if (!result && safeRemoteUrl(altUrl) && altUrl !== page) {
-    result = await resolveFromPage(altUrl, name, kind);
+  // 1. Exact product/design pages get first priority. Broad collection/search
+  //    pages go through discovery first so we do not accidentally grab a
+  //    neighboring product image.
+  let result = null;
+  if (!genericCollectionPage(page)) {
+    result = await resolveFromPage(page, queryName || name, kind);
   }
 
-  // 3. Last resort: proxy the curated direct image server-side. This avoids
+  // 2. When the stored page is broad, moved, JS-heavy, or blocks the resolver,
+  //    search the same official site for the exact product/design.
+  if (!result) {
+    result = await resolveViaDiscovery(page, brand, name, kind);
+  }
+
+  // 3. If the official page moved, try the alternate verified source page.
+  if (!result && safeRemoteUrl(altUrl) && altUrl !== page) {
+    if (!genericCollectionPage(altUrl)) {
+      result = await resolveFromPage(altUrl, queryName || name, kind);
+    }
+    if (!result) {
+      result = await resolveViaDiscovery(altUrl, brand, name, kind);
+    }
+  }
+
+  // 4. Last resort: proxy the curated direct image server-side. This avoids
   //    browser hotlink failures while still showing the exact verified yarn.
   if (!result && safeRemoteUrl(fallback)) {
     result = await fetchResolvedImage(fallback, altUrl || page);
@@ -355,6 +522,7 @@ export default async function handler(req, res) {
   if (!result) {
     console.warn("GarnSwatch image miss", {
       name,
+      brand: brand || null,
       kind,
       page,
       altUrl: altUrl || null,
