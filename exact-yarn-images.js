@@ -68,6 +68,10 @@
       page: "https://www.michaels.com/product/big-twist-living-yarn-10806958",
       image: "https://imgs.michaels.com/ce57db84-2460-435b-8fe8-fd86e10efd09.jpg?fit=inside%7C540%3A540"
     }],
+    ["big twist|value", {
+      page: "https://www.michaels.com/product/big-twist-value-yarn-10794624",
+      image: "https://imgs.michaels.com/0fd51e87-5e7b-4130-82e0-cb80edcab2b8.jpg?fit=inside%7C540%3A540"
+    }],
     ["caron|anniversary cakes", {
       page: "https://www.yarnspirations.com/products/caron-anniversary-cakes-yarn-1000g-35-3oz-discontinued-shades-1",
       image: "https://www.yarnspirations.com/cdn/shop/files/29104747001-2-HRS.jpg?v=1689819750&width=600"
@@ -232,8 +236,14 @@
       const curated = CURATED_YARN_MEDIA.get(yarnKey(item));
 
       if (curated) {
-        const fallback = curated.image || (validImage(item.image) ? item.image : "");
+        const rawFallback = curated.image || (validImage(item.image) ? item.image : "");
         const altUrl = curated.page;
+        const fallbackIsExact = validImage(rawFallback) && (
+          item.imageVerified === true ||
+          imageHasNameEvidence(rawFallback, name) ||
+          (validPage(altUrl) && !genericCollectionPage(altUrl))
+        );
+        const fallback = fallbackIsExact ? rawFallback : "";
 
         if (validPage(page)) {
           item.image = resolverImage(page, name, kind, { altUrl, fallback, brand: item.brand });
@@ -243,17 +253,17 @@
           item.image = resolverImage(altUrl, name, kind, { fallback, brand: item.brand });
           return;
         }
-        if (validImage(fallback)) {
-          item.image = fallback;
+        if (fallbackIsExact) {
+          item.image = rawFallback;
           return;
         }
       }
 
       if (validImage(item.image)) {
-        // A generic collection page plus a generic-looking image is not proof
-        // that the picture depicts this exact yarn. Prefer a clean placeholder
-        // over a confidently wrong product photo.
-        if (genericCollectionPage(page) && !imageHasNameEvidence(item.image, name) && !trustedDirectImage(item.image)) {
+        // GLOBAL RULE: a collection/search/shop page does not prove identity.
+        // Keep a direct image from a broad page only when the image itself
+        // contains the yarn name or the record was explicitly verified.
+        if (genericCollectionPage(page) && item.imageVerified !== true && !imageHasNameEvidence(item.image, name)) {
           delete item.image;
         } else {
           return;
@@ -265,7 +275,7 @@
     // design page or the media source is a strong design archive. Collection-page
     // thumbnails without name evidence are removed instead of being mislabeled.
     if (validImage(item.image)) {
-      if (kind === "pattern" && genericCollectionPage(page) && !imageHasNameEvidence(item.image, name) && !trustedDirectImage(item.image)) {
+      if (kind === "pattern" && genericCollectionPage(page) && item.imageVerified !== true && !imageHasNameEvidence(item.image, name)) {
         delete item.image;
       } else {
         return;
@@ -1629,6 +1639,65 @@
 
   addCustomYarnToCatalog();
   window.addEventListener("load", installCustomYarnUi);
+
+  function directImageIdentity(value) {
+    if (!validImage(value)) return "";
+    try {
+      const u = new URL(String(value));
+      u.search = "";
+      u.hash = "";
+      return u.toString().toLowerCase();
+    } catch {
+      return String(value).split(/[?#]/)[0].toLowerCase();
+    }
+  }
+
+  function allYarnRecords() {
+    const records = [];
+    const seenObjects = new Set();
+    Object.keys(window).forEach(function (key) {
+      const value = window[key];
+      if (!Array.isArray(value) || !/YARN/i.test(key)) return;
+      value.forEach(function (item) {
+        if (!item || typeof item !== "object" || seenObjects.has(item)) return;
+        seenObjects.add(item);
+        if (item.brand && (item.name || item.displayName)) records.push(item);
+      });
+    });
+    return records;
+  }
+
+  function removeRepeatedGenericYarnPhotos() {
+    const groups = new Map();
+    allYarnRecords().forEach(function (item) {
+      const id = directImageIdentity(item.image);
+      if (!id) return;
+      const list = groups.get(id) || [];
+      list.push(item);
+      groups.set(id, list);
+    });
+
+    groups.forEach(function (items) {
+      const identities = new Set(items.map(yarnKey));
+      if (identities.size < 2) return;
+
+      items.forEach(function (item) {
+        const name = item.name || item.displayName || "";
+        const page = pageFor(item, "yarn");
+        const exactEvidence = item.imageVerified === true ||
+          imageHasNameEvidence(item.image, name) ||
+          (validPage(page) && !genericCollectionPage(page));
+
+        if (!exactEvidence) {
+          delete item.image;
+        }
+      });
+    });
+  }
+
+  // Sweep every company, not a hard-coded brand list. Repeated direct photos
+  // on different yarn names are treated as generic unless exact evidence exists.
+  removeRepeatedGenericYarnPhotos();
 
   Object.keys(window).forEach(function (key) {
     const value = window[key];
