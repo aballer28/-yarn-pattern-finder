@@ -97,11 +97,16 @@ function scoreCandidate(candidate, tokens, pageUrl, kind) {
     }
   }
 
-  // A collection page can contain many valid product images. Require a
-  // meaningful name match so a working but unrelated image cannot win simply
-  // because it is the first Product/CreativeWork image on the page.
-  if (tokens.length && matchedTokens === 0) score -= 60;
-  if (tokens.length && matchedTokens >= Math.ceil(tokens.length / 2)) score += 20;
+  // GLOBAL EXACT-PHOTO RULE:
+  // On broad collection/search/shop pages, brand words are not enough.
+  // The candidate must contain meaningful evidence for the actual yarn/pattern name.
+  const requiredMatches = tokens.length ? Math.max(1, Math.ceil(tokens.length / 2)) : 0;
+  if (genericCollectionPage(pageUrl) && requiredMatches && matchedTokens < requiredMatches) {
+    return -1000;
+  }
+
+  if (tokens.length && matchedTokens === 0) score -= 80;
+  if (tokens.length && matchedTokens >= requiredMatches) score += 24;
 
   if (kind === "pattern") {
     if (candidate.type === "jsonld-creative") score += 85;
@@ -318,15 +323,23 @@ function detailLinkScore(link, pageUrl, brand, name, kind) {
   }
   if (parsed.hostname !== source.hostname) return -9999;
 
-  const wanted = nameTokens([brand, name].filter(Boolean).join(" "));
+  // Exact yarn/pattern NAME evidence is mandatory. Brand evidence is bonus only.
+  const wanted = nameTokens(name);
+  const brandWanted = nameTokens(brand);
   const hay = normalize([link.url, link.text, link.context].join(" "));
   let matched = 0;
   for (const token of wanted) {
     if (hay.includes(token)) matched += 1;
   }
-  if (wanted.length && matched === 0) return -1000;
+  const requiredMatches = wanted.length ? Math.max(1, Math.ceil(wanted.length / 2)) : 0;
+  if (requiredMatches && matched < requiredMatches) return -1000;
 
-  let score = matched * 20;
+  let brandMatched = 0;
+  for (const token of brandWanted) {
+    if (hay.includes(token)) brandMatched += 1;
+  }
+
+  let score = matched * 24 + Math.min(8, brandMatched * 2);
   const path = parsed.pathname.toLowerCase();
   if (kind === "pattern") {
     if (/\/(?:products?|patterns?|designs?)\//.test(path)) score += 30;
@@ -443,11 +456,10 @@ async function resolveViaDiscovery(rawPage, brand, name, kind) {
 
       const html = await response.text();
       const finalSearch = response.url || safeSearch.toString();
-      const queryName = [brand, name].filter(Boolean).join(" ");
 
-      // A server-rendered search result can already contain the exact product
-      // tile image; use it if the name evidence is strong enough.
-      const directImage = chooseImage(html, finalSearch, queryName || name, kind);
+      // Only the product/design NAME can satisfy identity evidence here.
+      // Brand text appears across collection pages and cannot prove an exact photo.
+      const directImage = chooseImage(html, finalSearch, name, kind);
       if (directImage) {
         const resolved = await fetchResolvedImage(directImage, finalSearch);
         if (resolved) return resolved;
@@ -463,7 +475,7 @@ async function resolveViaDiscovery(rawPage, brand, name, kind) {
         .slice(0, 4);
 
       for (const link of links) {
-        const resolved = await resolveFromPage(link.url, queryName || name, kind);
+        const resolved = await resolveFromPage(link.url, name, kind);
         if (resolved) return resolved;
       }
     } catch {
@@ -487,14 +499,12 @@ export default async function handler(req, res) {
     return;
   }
 
-  const queryName = [brand, name].filter(Boolean).join(" ");
-
   // 1. Exact product/design pages get first priority. Broad collection/search
   //    pages go through discovery first so we do not accidentally grab a
   //    neighboring product image.
   let result = null;
   if (!genericCollectionPage(page)) {
-    result = await resolveFromPage(page, queryName || name, kind);
+    result = await resolveFromPage(page, name, kind);
   }
 
   // 2. When the stored page is broad, moved, JS-heavy, or blocks the resolver,
@@ -506,7 +516,7 @@ export default async function handler(req, res) {
   // 3. If the official page moved, try the alternate verified source page.
   if (!result && safeRemoteUrl(altUrl) && altUrl !== page) {
     if (!genericCollectionPage(altUrl)) {
-      result = await resolveFromPage(altUrl, queryName || name, kind);
+      result = await resolveFromPage(altUrl, name, kind);
     }
     if (!result) {
       result = await resolveViaDiscovery(altUrl, brand, name, kind);
