@@ -3,33 +3,41 @@ import vm from "node:vm";
 
 const mode = String(process.argv[2] || "patterns").toLowerCase();
 if (!["patterns", "yarns", "both"].includes(mode)) {
-  throw new Error("Usage: node scripts/catalog-auto-import.mjs patterns|yarns|both");
+  throw new Error("Usage: node catalog-auto-import.mjs patterns|yarns|both");
 }
 
-const FILES = {
-  yarns: [
-    "catalog.js", "kfi-catalog.js", "knit-picks-yarns.js",
-    "yarn-image-catalog.js", "kelbourne-family-yarns.js",
-    "berroco-family-safe.js", "auto-yarns.js"
-  ],
-  patterns: [
-    "kfi-pattern-index.js", "novelty-pattern-catalog.js",
-    "external-pattern-catalog.js", "knit-picks-catalog.js",
-    "kelbourne-family-patterns.js", "berroco-family-safe.js",
-    "auto-patterns.js"
-  ]
-};
-
-const YARN_ARRAYS = [
-  "YARN_CATALOG", "KFI_YARN_CATALOG", "KNIT_PICKS_YARN_CATALOG",
-  "YARN_IMAGE_CATALOG", "KELBOURNE_FAMILY_YARN_CATALOG",
-  "BERROCO_FAMILY_YARN_CATALOG", "AUTO_YARN_CATALOG"
-];
-
-const PATTERN_ARRAYS = [
-  "PATTERN_CATALOG", "EXTERNAL_PATTERN_CATALOG", "KNIT_PICKS_PATTERN_CATALOG",
-  "KELBOURNE_FAMILY_PATTERN_CATALOG", "BERROCO_FAMILY_PATTERN_CATALOG",
-  "AUTO_PATTERN_CATALOG"
+const CATALOG_FILES = [
+  "catalog.js",
+  "kfi-catalog.js",
+  "knit-picks-yarns.js",
+  "yarn-image-catalog.js",
+  "koigu-yarn-update.js",
+  "kelbourne-family-yarns.js",
+  "kelbourne-family-patterns.js",
+  "berroco-family-catalog.js",
+  "berroco-pattern-bridge.js",
+  "berroco-family-safe.js",
+  "quince-family-catalog.js",
+  "luca-s-catalog.js",
+  "vobelle-catalog.js",
+  "atlantic-coast-catalog.js",
+  "wollbiene-catalog.js",
+  "knitting-for-olive-catalog.js",
+  "bettaknit-catalog.js",
+  "wool-couture-catalog.js",
+  "purl-soho-catalog.js",
+  "lion-brand-catalog.js",
+  "drops-catalog.js",
+  "mainstays-catalog.js",
+  "michaels-joann-catalog.js",
+  "yarnspirations-catalog.js",
+  "kfi-pattern-index.js",
+  "novelty-pattern-catalog.js",
+  "external-pattern-catalog.js",
+  "knit-picks-catalog.js",
+  "auto-yarns.js",
+  "auto-patterns.js",
+  "catalog-integration.js"
 ];
 
 const BRAND_BY_DOMAIN = {
@@ -65,6 +73,20 @@ const REQUEST_HEADERS = {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function mapPool(values, limit, worker) {
+  const results = new Array(values.length);
+  let next = 0;
+  async function run() {
+    while (true) {
+      const index = next++;
+      if (index >= values.length) return;
+      results[index] = await worker(values[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, values.length || 1) }, run));
+  return results;
+}
 
 function norm(value) {
   return String(value || "")
@@ -147,20 +169,33 @@ async function loadWindow(files) {
   return sandbox.window;
 }
 
+function catalogYarnRecord(item) {
+  return item && typeof item === "object" && !Array.isArray(item)
+    && item.brand && item.name
+    && !(item.usedYarns || item.designer || item.patternUrl || item.pdfUrl)
+    && Boolean(item.weight || item.cycWeight || item.yards || item.meters || item.grams || item.fiber || item.fiberFamily || item.knitGauge || item.crochetGauge || item.needleSize || item.hookSize || item.status || item.catalogOnly || item.sourceUrl);
+}
+
+function catalogPatternRecord(item) {
+  return item && typeof item === "object" && !Array.isArray(item)
+    && item.name
+    && Boolean(item.usedYarns || item.craft || item.project || item.designer || item.patternUrl || item.pdfUrl || item.skillLevel || item.free === true || item.ravelryUrl);
+}
+
 function flattenYarns(win) {
   const out = [];
-  for (const key of YARN_ARRAYS) {
-    const list = win[key];
-    if (Array.isArray(list)) out.push(...list.filter((x) => x && typeof x === "object" && !Array.isArray(x)));
+  for (const [key, list] of Object.entries(win)) {
+    if (!/YARN/i.test(key) || !Array.isArray(list)) continue;
+    for (const item of list) if (catalogYarnRecord(item)) out.push(item);
   }
   return out;
 }
 
 function flattenPatterns(win) {
   const out = [];
-  for (const key of PATTERN_ARRAYS) {
-    const list = win[key];
-    if (Array.isArray(list)) out.push(...list.filter((x) => x && typeof x === "object" && !Array.isArray(x)));
+  for (const [key, list] of Object.entries(win)) {
+    if (!/PATTERN/i.test(key) || !Array.isArray(list)) continue;
+    for (const item of list) if (catalogPatternRecord(item)) out.push(item);
   }
 
   if (Array.isArray(win.KFI_PATTERN_INDEX)) {
@@ -415,7 +450,7 @@ function cleanName(name) {
     .trim();
 }
 
-function extractYarn(url, html) {
+function extractYarn(url, html, brandHint = "") {
   const host = domainOf(url);
   const ld = extractJsonLd(html);
   const product = ld.find((x) => {
@@ -428,7 +463,7 @@ function extractYarn(url, html) {
   if (!title || !looksLikeYarn(url, title, description)) return null;
 
   const details = inferYarnDetails(description);
-  const brand = brandName(product.brand, host) || BRAND_BY_DOMAIN[host] || host;
+  const brand = brandName(product.brand, host) || brandHint || BRAND_BY_DOMAIN[host] || host;
   const image = firstImage(product.image) || meta(html, "og:image");
 
   return {
@@ -468,7 +503,7 @@ function inferProject(text) {
   return "Other";
 }
 
-function extractPattern(url, html) {
+function extractPattern(url, html, brandHint = "") {
   const host = domainOf(url);
   const ld = extractJsonLd(html);
   const product = ld.find((x) => {
@@ -481,7 +516,7 @@ function extractPattern(url, html) {
   const description = stripHtml(product.description || meta(html, "description") || html);
   if (!title || !looksLikePattern(url, title, description)) return null;
 
-  const brand = brandName(product.brand, host) || BRAND_BY_DOMAIN[host] || host;
+  const brand = brandName(product.brand, host) || brandHint || BRAND_BY_DOMAIN[host] || host;
   const image = firstImage(product.image) || meta(html, "og:image");
   const directRavelry = canonicalUrl(
     (html.match(/https:\/\/(?:www\.)?ravelry\.com\/patterns\/library\/[^"' <]+/i) || [])[0] || ""
@@ -542,6 +577,28 @@ async function crawl(kind, existing, state) {
     byDomain.get(host).push(url);
   }
 
+  // Learn brand names from the catalog already loaded for each source host.
+  // This keeps automatically discovered items under the same customer-facing
+  // brand even when the source page omits Product.brand metadata.
+  const brandCountsByDomain = new Map();
+  for (const item of existing) {
+    const raw = kind === "patterns"
+      ? (item.url || item.sourceUrl || item.patternUrl)
+      : (item.sourceUrl || item.url || item.productUrl);
+    const host = domainOf(raw);
+    const brand = String(item.brand || item.sourceBrand || (Array.isArray(item.brands) ? item.brands[0] : "") || "").trim();
+    if (!host || !brand) continue;
+    if (!brandCountsByDomain.has(host)) brandCountsByDomain.set(host, new Map());
+    const counts = brandCountsByDomain.get(host);
+    counts.set(brand, (counts.get(brand) || 0) + 1);
+  }
+
+  function brandHintFor(host) {
+    const counts = brandCountsByDomain.get(host);
+    if (!counts || !counts.size) return "";
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  }
+
   const since = kind === "patterns" ? state.lastPatternRun : state.lastYarnRun;
   const allCandidates = [];
 
@@ -558,40 +615,41 @@ async function crawl(kind, existing, state) {
     for (const page of selected) allCandidates.push(page.url);
   }
 
-  const unique = [...new Set(allCandidates)];
-  const found = [];
+  const unique = [...new Set(allCandidates)]
+    .slice(0, kind === "patterns" ? 800 : 500);
 
-  // Keep requests polite and bounded; new/modified sitemap pages are checked in small batches.
-  for (let i = 0; i < unique.length; i++) {
-    const url = unique[i];
+  // Keep requests bounded but parallel enough that a scheduled update cannot
+  // spend hours waiting on one slow manufacturer at a time.
+  const discovered = await mapPool(unique, 8, async (url) => {
     const res = await fetchText(url);
-    if (!res.ok) continue;
+    if (!res.ok) return null;
 
-    const item = kind === "patterns"
-      ? extractPattern(res.url || url, res.text)
-      : extractYarn(res.url || url, res.text);
+    const finalUrl = res.url || url;
+    const brandHint = brandHintFor(domainOf(finalUrl));
+    return kind === "patterns"
+      ? extractPattern(finalUrl, res.text, brandHint)
+      : extractYarn(finalUrl, res.text, brandHint);
+  });
 
-    if (item) found.push(item);
-    if (i % 12 === 11) await sleep(350);
-  }
-
-  return { found, discoveredUrls: unique };
+  return { found: discovered.filter(Boolean), discoveredUrls: unique };
 }
 
 async function auditDiscontinued(existingYarns, autoYarns, state, changes) {
   const autoByKey = new Map(autoYarns.map((y) => [yarnKey(y), y]));
   const missing = state.missingYarnChecks || {};
 
-  // Only inspect direct manufacturer/source URLs, and never delete.
-  const candidates = existingYarns
-    .filter((y) => y?.sourceUrl && !/ravelry\.com/i.test(y.sourceUrl))
-    .slice(0, 1200);
-
-  for (let i = 0; i < candidates.length; i++) {
-    const yarn = candidates[i];
+  // Only inspect direct manufacturer/source URLs, never delete, and check each
+  // unique URL once even if more than one catalog record points to it.
+  const byUrl = new Map();
+  for (const yarn of existingYarns) {
+    if (!yarn?.sourceUrl || /ravelry\.com/i.test(yarn.sourceUrl)) continue;
     const url = canonicalUrl(yarn.sourceUrl);
-    if (!url) continue;
+    if (!url || byUrl.has(url)) continue;
+    byUrl.set(url, yarn);
+    if (byUrl.size >= 1200) break;
+  }
 
+  const results = await mapPool([...byUrl.entries()], 12, async ([url, yarn]) => {
     const res = await fetchText(url, { timeout: 14000 });
     let explicit = false;
 
@@ -602,25 +660,27 @@ async function auditDiscontinued(existingYarns, autoYarns, state, changes) {
     } else if (res.ok) {
       missing[url] = 0;
       const plain = stripHtml(res.text).slice(0, 20000);
-      explicit = /\b(discontinued|no longer (?:made|available|produced))\b/i.test(plain);
+      explicit = /(discontinued|no longer (?:made|available|produced))/i.test(plain);
     }
 
-    if (explicit && !yarn.discontinued) {
-      const key = yarnKey(yarn);
-      const overlay = {
-        ...(autoByKey.get(key) || {}),
-        brand: yarn.brand,
-        name: yarn.name,
-        sourceUrl: url,
-        discontinued: true,
-        status: "Discontinued",
-        autoImported: true
-      };
-      autoByKey.set(key, overlay);
-      changes.yarns.discontinued.push(`${yarn.brand} — ${yarn.name}`);
-    }
+    return { url, yarn, explicit };
+  });
 
-    if (i % 15 === 14) await sleep(300);
+  for (const result of results) {
+    if (!result?.explicit || result.yarn.discontinued) continue;
+    const yarn = result.yarn;
+    const key = yarnKey(yarn);
+    const overlay = {
+      ...(autoByKey.get(key) || {}),
+      brand: yarn.brand,
+      name: yarn.name,
+      sourceUrl: result.url,
+      discontinued: true,
+      status: "Discontinued",
+      autoImported: true
+    };
+    autoByKey.set(key, overlay);
+    changes.yarns.discontinued.push(`${yarn.brand} — ${yarn.name}`);
   }
 
   state.missingYarnChecks = missing;
@@ -662,7 +722,7 @@ const changes = await readAutoChanges();
 const now = new Date().toISOString();
 
 if (mode === "patterns" || mode === "both") {
-  const win = await loadWindow(FILES.patterns);
+  const win = await loadWindow(CATALOG_FILES);
   const existing = flattenPatterns(win);
   const autoExisting = Array.isArray(win.AUTO_PATTERN_CATALOG) ? win.AUTO_PATTERN_CATALOG : [];
 
@@ -680,7 +740,7 @@ if (mode === "patterns" || mode === "both") {
 }
 
 if (mode === "yarns" || mode === "both") {
-  const win = await loadWindow(FILES.yarns);
+  const win = await loadWindow(CATALOG_FILES);
   const existing = flattenYarns(win);
   const curated = existing.filter((y) => !y.autoImported);
   const autoExisting = Array.isArray(win.AUTO_YARN_CATALOG) ? win.AUTO_YARN_CATALOG : [];

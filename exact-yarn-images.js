@@ -109,6 +109,7 @@
       item.productUrl ||
       item.imagePage ||
       item.sourceUrl ||
+      item.imageSourceUrl ||
       item.url ||
       item.patternUrl ||
       item.ravelryUrl ||
@@ -116,32 +117,85 @@
     );
   }
 
+  function yarnKey(item) {
+    return normalize(item && item.brand) + "|" + normalize(item && (item.name || item.displayName));
+  }
+
+  const CURATED_YARN_MEDIA = new Map();
+  (window.YARN_IMAGE_CATALOG || []).forEach(function (item) {
+    if (!item || typeof item !== "object") return;
+    const key = yarnKey(item);
+    if (!key) return;
+    CURATED_YARN_MEDIA.set(key, {
+      image: validImage(item.image) ? item.image : "",
+      page: item.imageSourceUrl || item.sourceUrl || item.imagePage || item.url || ""
+    });
+  });
+
+  function resolverImage(page, name, kind, options) {
+    options = options || {};
+    const params = new URLSearchParams();
+    params.set("url", page);
+    params.set("name", name);
+    params.set("kind", kind);
+    if (validPage(options.altUrl) && options.altUrl !== page) {
+      params.set("altUrl", options.altUrl);
+    }
+    if (validImage(options.fallback)) {
+      params.set("fallback", options.fallback);
+    }
+    return "/api/yarn-image?" + params.toString();
+  }
+
   function setExactImage(item, kind) {
     if (!item || typeof item !== "object") return;
 
-    // Fix known problem brands first, even if a bad image was already present.
+    // Fix known problem brands first.
     if (exactSpecialCase(item)) return;
-
-    // Keep existing direct images.
-    if (validImage(item.image)) return;
-
-    // Remove old generic Microlink fallback.
-    if (/api\.microlink\.io/i.test(String(item.image || ""))) {
-      delete item.image;
-    }
 
     const page = pageFor(item);
     const name = item.name || item.displayName || item.title || "";
 
-    if (!validPage(page) || !name) return;
+    // Yarn records often exist in more than one catalog. The curated
+    // YARN_IMAGE_CATALOG copy can contain a verified image even when the
+    // technical-data copy does not. For those curated matches, use the
+    // server resolver with the curated image as a last-resort fallback.
+    // For every other yarn that already has a direct image, keep it direct
+    // so the site does not send hundreds of unnecessary serverless requests.
+    if (kind === "yarn" && name) {
+      const curated = CURATED_YARN_MEDIA.get(yarnKey(item));
 
-    item.image =
-      "/api/yarn-image?url=" +
-      encodeURIComponent(page) +
-      "&name=" +
-      encodeURIComponent(name) +
-      "&kind=" +
-      encodeURIComponent(kind);
+      if (curated) {
+        const fallback = curated.image || (validImage(item.image) ? item.image : "");
+        const altUrl = curated.page;
+
+        if (validPage(page)) {
+          item.image = resolverImage(page, name, kind, { altUrl, fallback });
+          return;
+        }
+        if (validPage(altUrl)) {
+          item.image = resolverImage(altUrl, name, kind, { fallback });
+          return;
+        }
+        if (validImage(fallback)) {
+          item.image = fallback;
+          return;
+        }
+      }
+
+      if (validImage(item.image)) return;
+    }
+
+    // Keep existing direct pattern images. They are numerous and already
+    // stable; only missing pattern images need the resolver.
+    if (validImage(item.image)) return;
+
+    if (/api\.microlink\.io/i.test(String(item.image || ""))) {
+      delete item.image;
+    }
+
+    if (!validPage(page) || !name) return;
+    item.image = resolverImage(page, name, kind);
   }
 
 

@@ -5,6 +5,7 @@
     return String(value || "")
       .normalize("NFKD")
       .toLowerCase()
+      .replace(/[\u0300-\u036f]/g, "")
       .replace(/[®™©]/g, "")
       .replace(/&/g, "and")
       .replace(/[^a-z0-9]+/g, " ")
@@ -66,6 +67,21 @@
     return nameParts.length ? `${canonicalBrand(brand)}|${nameParts.join("|")}` : value;
   }
 
+  function yarnImageQuality(value) {
+    const image = String(value || "");
+    if (!image) return 0;
+    if (/^\/api\/yarn-image\?/i.test(image) && /(?:^|&)fallback=/i.test(image)) return 4;
+    if (/^https?:\/\//i.test(image)) return 3;
+    if (/^\/api\/yarn-image\?/i.test(image)) return 2;
+    return 1;
+  }
+
+  function bestYarnImage(existing, incoming) {
+    const a = existing && existing.image;
+    const b = incoming && incoming.image;
+    return yarnImageQuality(b) > yarnImageQuality(a) ? b : (a || b);
+  }
+
   function dedupeYarns(items) {
     const merged = new Map();
     items.forEach((item) => {
@@ -80,12 +96,14 @@
         ...incoming,
         ...existing,
         kfiId: existing.kfiId || incoming.kfiId,
-        image: existing.image || incoming.image,
+        image: bestYarnImage(existing, incoming),
         knitGauge: existing.knitGauge || incoming.knitGauge,
         crochetGauge: existing.crochetGauge || incoming.crochetGauge,
         sourceUrl: existing.sourceUrl || incoming.sourceUrl,
         discontinued: Boolean(existing.discontinued || incoming.discontinued),
-        status: existing.status || incoming.status
+        status: (existing.discontinued || incoming.discontinued)
+          ? "Discontinued"
+          : (existing.status || incoming.status)
       });
     });
     return [...merged.values()];
@@ -407,6 +425,24 @@
       ? `<a href="${escapeHtml(direct)}" target="_blank" rel="noopener">View on Ravelry →</a>`
       : "";
   }
+  function patternPrimaryUrl(pattern) {
+    return String((pattern && (
+      pattern.url ||
+      pattern.patternUrl ||
+      pattern.sourceUrl ||
+      pattern.ravelryUrl
+    )) || "");
+  }
+
+  function yarnPrimaryUrl(yarn) {
+    return String((yarn && (
+      yarn.sourceUrl ||
+      yarn.productUrl ||
+      yarn.imagePage ||
+      yarn.url ||
+      yarn.ravelryUrl
+    )) || "");
+  }
   function escapeHtml(value) {
     return String(value)
       .replaceAll("&", "&amp;")
@@ -584,17 +620,45 @@
     return { exact, score };
   }
 
+  function imageRetryUrl(item, kind) {
+    const current = String(item && item.image || "");
+    if (!current || /^\/api\/yarn-image\?/i.test(current)) return "";
+
+    const page = String((item && (
+      item.productUrl ||
+      item.imagePage ||
+      item.sourceUrl ||
+      item.imageSourceUrl ||
+      item.url ||
+      item.patternUrl ||
+      item.ravelryUrl
+    )) || "");
+    const name = String((item && (item.name || item.displayName || item.title)) || "");
+    if (!/^https?:\/\//i.test(page) || !name) return "";
+
+    const params = new URLSearchParams({ url: page, name, kind });
+    if (/^https?:\/\//i.test(current)) params.set("fallback", current);
+    return `/api/yarn-image?${params.toString()}`;
+  }
+
+  function mediaErrorHandler(retryUrl) {
+    if (!retryUrl) return "this.hidden=true;this.nextElementSibling.hidden=false";
+    return `if(!this.dataset.retried){this.dataset.retried='1';this.src='${escapeHtml(retryUrl)}';}else{this.hidden=true;this.nextElementSibling.hidden=false}`;
+  }
+
   function patternMedia(pattern) {
     const initial = escapeHtml(pattern.name.charAt(0).toUpperCase());
     if (!pattern.image) return `<div class="pattern-placeholder" aria-hidden="true">${initial}</div>`;
-    return `<img class="pattern-image" src="${escapeHtml(pattern.image)}" alt="${escapeHtml(pattern.name)} pattern" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+    const retry = imageRetryUrl(pattern, "pattern");
+    return `<img class="pattern-image" src="${escapeHtml(pattern.image)}" alt="${escapeHtml(pattern.name)} pattern" loading="lazy" onerror="${mediaErrorHandler(retry)}">
       <div class="pattern-placeholder" aria-hidden="true" hidden>${initial}</div>`;
   }
 
   function yarnMedia(yarn, className = "yarn-image") {
     const initial = escapeHtml(yarn.name.charAt(0).toUpperCase());
     if (!yarn.image) return `<div class="${className} yarn-placeholder" aria-hidden="true">${initial}</div>`;
-    return `<img class="${className}" src="${escapeHtml(yarn.image)}" alt="${escapeHtml(`${yarn.brand} ${yarn.name} yarn`)}" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+    const retry = imageRetryUrl(yarn, "yarn");
+    return `<img class="${className}" src="${escapeHtml(yarn.image)}" alt="${escapeHtml(`${yarn.brand} ${yarn.name} yarn`)}" loading="lazy" onerror="${mediaErrorHandler(retry)}">
       <div class="${className} yarn-placeholder" aria-hidden="true" hidden>${initial}</div>`;
   }
 
@@ -822,19 +886,21 @@
       const items = yarns
         .filter((yarn) => yarn.brand === brand)
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((yarn) => `<li class="yarn-catalog-card">
+        .map((yarn) => {
+          const source = yarnPrimaryUrl(yarn);
+          const name = source
+            ? `<a href="${escapeHtml(source)}" target="_blank" rel="noopener">${escapeHtml(yarn.name)}</a>`
+            : `<strong>${escapeHtml(yarn.name)}</strong>`;
+          return `<li class="yarn-catalog-card">
           ${yarnMedia(yarn, "yarn-catalog-image")}
-          <div><a href="${escapeHtml(yarn.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(yarn.name)}</a><span>${escapeHtml(yarn.weight)}</span></div>
-        </li>`)
+          <div>${name}<span>${escapeHtml(yarn.weight)}</span></div>
+        </li>`;
+        })
         .join("");
       return `<section class="catalog-group"><h3>${escapeHtml(brand)}</h3><ul class="yarn-catalog-grid">${items}</ul></section>`;
     }).join("");
   }
 
-  function populatePatternBrands() {
-    const patternBrands = [...new Set(rankedPatternCatalog.flatMap((pattern) => pattern.brands || []))]
-      .sort((a, b) => a.localeCompare(b));
-  }
 
   function patternWeights(pattern) {
     const weights = new Set();
@@ -1000,7 +1066,7 @@
   }
 
   function sortRankedPatterns(list) {
-    const mode = state.patternSort || "az";
+    const mode = state.patternSort || "closest";
     return [...list].sort((a, b) => {
       if (mode === "za") {
         return b.name.localeCompare(a.name);
@@ -1058,7 +1124,11 @@
       const toolName = pattern.toolSize
         ? (state.craft === "crochet" ? "Pattern hook" : "Pattern needles")
         : (state.craft === "crochet" ? "Suggested hook" : "Suggested needles");
-      const primaryLabel = /knittingfever\.com/i.test(pattern.url || "") ? "View on Knitting Fever" : "View pattern";
+      const primaryUrl = patternPrimaryUrl(pattern);
+      const primaryLabel = /knittingfever\.com/i.test(primaryUrl) ? "View on Knitting Fever" : "View pattern";
+      const primaryLink = primaryUrl
+        ? `<a href="${escapeHtml(primaryUrl)}" target="_blank" rel="noopener">${primaryLabel} →</a>`
+        : "";
       return `<article class="pattern">
         ${patternMedia(pattern)}
         <div class="pattern-body">
@@ -1072,7 +1142,7 @@
           <strong>${toolName}:</strong> ${escapeHtml(toolLabel)}<br>
           ${escapeHtml(pattern.reason)}<br>${escapeHtml(details)}</p>
           <div class="pattern-links">
-            <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">${primaryLabel} →</a>
+            ${primaryLink}
             ${ravelryPatternLink(pattern)}
           </div>
         </div>
@@ -1114,7 +1184,6 @@
     $("buyProject").innerHTML = Object.keys(baseRanges.Worsted).map((project) => `<option>${escapeHtml(project)}</option>`).join("");
     $("buyProject").value = state.project;
     renderCatalog();
-    populatePatternBrands();
     renderAll();
 
     $("brandSelect").addEventListener("change", () => {
