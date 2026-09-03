@@ -369,6 +369,25 @@
     Novelty: { knit: "Follow the pattern", crochet: "Follow the pattern" }
   };
 
+
+  function ravelryPatternUrl(pattern) {
+    const candidates = [
+      pattern && pattern.ravelryUrl,
+      pattern && pattern.url,
+      pattern && pattern.patternUrl,
+      pattern && pattern.sourceUrl
+    ].filter(Boolean).map(String);
+    return candidates.find((url) =>
+      /^https:\/\/(?:www\.)?ravelry\.com\/patterns\/library\//i.test(url)
+    ) || "";
+  }
+
+  function ravelryPatternLink(pattern) {
+    const direct = ravelryPatternUrl(pattern);
+    return direct
+      ? `<a href="${escapeHtml(direct)}" target="_blank" rel="noopener">View on Ravelry →</a>`
+      : "";
+  }
   function escapeHtml(value) {
     return String(value)
       .replaceAll("&", "&amp;")
@@ -677,7 +696,6 @@
 
     const visible = state.kfiExpanded ? allExact : allExact.slice(0, 3);
     $("kfiExactPatterns").innerHTML = visible.map((pattern) => {
-      const ravelryUrl = `https://www.ravelry.com/patterns/search#query=${encodeURIComponent(`${pattern.name} ${yarn.brand}`)}&sort=best`;
       return `<article class="pattern">
         ${patternMedia(pattern)}
         <div class="pattern-body">
@@ -686,7 +704,7 @@
           <p>Official Knitting Fever design · Exact yarn pairing. Yardage, sizing, and craft details are on the pattern page.</p>
           <div class="pattern-links">
             <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View on Knitting Fever →</a>
-            <a href="${escapeHtml(ravelryUrl)}" target="_blank" rel="noopener">Find on Ravelry →</a>
+            ${ravelryPatternLink(pattern)}
           </div>
         </div>
       </article>`;
@@ -726,7 +744,6 @@
 
     const visible = state.noveltyExpanded ? additional : additional.slice(0, 12);
     $("noveltyPatterns").innerHTML = visible.map((pattern) => {
-      const ravelryUrl = `https://www.ravelry.com/patterns/search#query=${encodeURIComponent(`${pattern.name} ${yarn.brand}`)}&sort=best`;
       return `<article class="pattern">
         ${patternMedia(pattern)}
         <div class="pattern-body">
@@ -735,7 +752,7 @@
           <p>Official Knitting Fever design. This pattern may use a different yarn from the same brand, so check the pattern page before substituting.</p>
           <div class="pattern-links">
             <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">View on Knitting Fever →</a>
-            <a href="${escapeHtml(ravelryUrl)}" target="_blank" rel="noopener">Find on Ravelry →</a>
+            ${ravelryPatternLink(pattern)}
           </div>
         </div>
       </article>`;
@@ -958,7 +975,6 @@
       const details = yarnLabels.length
         ? `Listed yarn${pattern.usedYarns.length === 1 ? "" : "s"}: ${yarnLabels.join(", ")}${extraYarns ? `, plus ${extraYarns} more` : ""}`
         : (pattern.brands || []).length ? `Brand: ${(pattern.brands || []).join(", ")}` : "Yarn not listed";
-      const ravelryUrl = `https://www.ravelry.com/patterns/search#query=${encodeURIComponent(`${pattern.name} ${(pattern.brands || []).join(" ")}`)}&sort=best`;
       const craftLabel = state.craft === "crochet" ? "Crochet" : "Knitting";
       const gaugeLabel = patternGaugeLabel(pattern);
       const yarnGaugeLabel = formatGaugeRange(yarnGaugeRange(yarn));
@@ -982,7 +998,7 @@
           ${escapeHtml(pattern.reason)}<br>${escapeHtml(details)}</p>
           <div class="pattern-links">
             <a href="${escapeHtml(pattern.url)}" target="_blank" rel="noopener">${primaryLabel} →</a>
-            <a href="${escapeHtml(ravelryUrl)}" target="_blank" rel="noopener">Find on Ravelry →</a>
+            ${ravelryPatternLink(pattern)}
           </div>
         </div>
       </article>`;
