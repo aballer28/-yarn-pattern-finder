@@ -1,0 +1,60 @@
+name: Garn Swatch automatic catalog import
+
+on:
+  schedule:
+    - cron: "20 10 * * *"
+    - cron: "50 10 1 * *"
+  workflow_dispatch:
+    inputs:
+      catalog:
+        description: "Catalog to update"
+        required: true
+        default: "patterns"
+        type: choice
+        options:
+          - patterns
+          - yarns
+          - both
+
+permissions:
+  contents: write
+
+jobs:
+  catalog-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Choose update
+        id: choose
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "catalog=${{ inputs.catalog }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "50 10 1 * *" ]; then
+            echo "catalog=yarns" >> "$GITHUB_OUTPUT"
+          else
+            echo "catalog=patterns" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Garn Swatch importer
+        run: node catalog-auto-import.mjs "${{ steps.choose.outputs.catalog }}"
+
+      - name: Commit catalog changes
+        shell: bash
+        run: |
+          git add auto-yarns.js auto-patterns.js catalog-auto-state.json catalog-auto-changes.js
+          if git diff --cached --quiet; then
+            echo "No catalog changes."
+            exit 0
+          fi
+          git config user.name "Garn Swatch catalog updater"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "Automatic Garn Swatch catalog update"
+          git push
